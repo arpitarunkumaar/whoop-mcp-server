@@ -1,0 +1,27 @@
+{
+  "name": "whoop-mcp-cloudflare-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.2.3",
+    "@modelcontextprotocol/sdk": "1.26.0",
+    "agents": "^0.5.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260310.0",
+    "@types/node": "^24.3.0",
+    "typescript": "5.9.3",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.67.0"
+  }
+}

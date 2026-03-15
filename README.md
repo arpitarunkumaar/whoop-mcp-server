@@ -9,6 +9,7 @@ Connect WHOOP data to Claude Desktop through MCP. This server authenticates with
 - Return an analyzed dashboard snapshot for quick trend views.
 - Return full raw history used by the dashboard.
 - Keep tokens encrypted locally and refresh them automatically.
+- Deploy a remote MCP server on Cloudflare Workers (Access OAuth + single-user WHOOP control).
 
 ## MCP Tools
 
@@ -47,6 +48,14 @@ Use the direct local OAuth flow (no third-party auth broker):
 ```bash
 python3.11 setup.py --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
 ```
+
+## Cloudflare Remote MCP
+
+This repo includes a Cloudflare Worker MCP server in `cloudflare-worker/` for remote usage with `mcp-remote`.
+
+Follow the full setup guide:
+
+- [docs/cloudflare-remote-mcp.md](docs/cloudflare-remote-mcp.md)
 
 ## Claude Desktop Setup
 
