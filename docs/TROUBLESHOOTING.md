@@ -40,7 +40,7 @@ pip show mcp httpx pydantic cryptography python-dotenv
 #### "No valid access token available"
 
 **Symptoms:**
-- Claude shows authentication errors
+- Claude or Codex shows authentication errors
 - Server logs show token errors
 - Cannot access WHOOP data
 
@@ -75,7 +75,7 @@ pip show mcp httpx pydantic cryptography python-dotenv
 
 2. **Check network connectivity:**
    ```bash
-   curl -I https://api.prod.whoop.com/developer/v1/
+   curl -I https://api.prod.whoop.com/developer/v2/
    ```
 
 3. **Verify OAuth service:**
@@ -85,11 +85,11 @@ pip show mcp httpx pydantic cryptography python-dotenv
 
 ### 🔌 Connection Issues
 
-#### Claude Desktop doesn't see WHOOP server
+#### Claude Desktop or Codex doesn't see WHOOP server
 
 **Symptoms:**
-- No WHOOP tools appear in Claude
-- Claude doesn't respond to WHOOP queries
+- No WHOOP tools appear in the client
+- Claude or Codex doesn't respond to WHOOP queries
 
 **Diagnosis Steps:**
 1. **Check Claude Desktop logs:**
@@ -105,9 +105,14 @@ pip show mcp httpx pydantic cryptography python-dotenv
    tail -f ~/.local/share/Claude/logs/mcp.log
    ```
 
-2. **Validate JSON configuration:**
+2. **Validate Claude Desktop JSON configuration:**
    ```bash
    python -c "import json; print(json.load(open('path/to/claude_desktop_config.json')))"
+   ```
+
+3. **Check Codex server registration:**
+   ```bash
+   codex mcp list
    ```
 
 **Solutions:**
@@ -116,8 +121,8 @@ pip show mcp httpx pydantic cryptography python-dotenv
    - Verify file exists at specified location
    - Check PYTHONPATH is correct
 
-2. **Restart Claude Desktop completely:**
-   - Quit application entirely
+2. **Restart the client completely:**
+   - Quit Claude Desktop entirely or restart Codex
    - Wait 5 seconds
    - Relaunch
 
@@ -131,9 +136,19 @@ pip show mcp httpx pydantic cryptography python-dotenv
          "env": {
            "PYTHONPATH": "/absolute/path/to/whoop-mcp-server/src"
          }
-       }
-     }
-   }
+      }
+    }
+  }
+  ```
+
+4. **Equivalent Codex configuration:**
+   ```toml
+   [mcp_servers.whoop]
+   command = "/absolute/path/to/python"
+   args = ["/absolute/path/to/whoop-mcp-server/src/whoop_mcp_server.py"]
+
+   [mcp_servers.whoop.env]
+   PYTHONPATH = "/absolute/path/to/whoop-mcp-server/src"
    ```
 
 ### 🐍 Python Environment Issues
@@ -205,7 +220,7 @@ pip show mcp httpx pydantic cryptography python-dotenv
 
 2. **Verify HTTPS access:**
    ```bash
-   curl -I https://api.prod.whoop.com/developer/v1/
+   curl -I https://api.prod.whoop.com/developer/v2/
    ```
 
 3. **Check firewall settings:**
@@ -289,11 +304,11 @@ echo "5. Server Test:"
 cd src && timeout 5 python whoop_mcp_server.py 2>&1 || echo "Server test completed"
 
 echo "6. Network Connectivity:"
-curl -s -I https://api.prod.whoop.com/developer/v1/ | head -1 2>/dev/null || echo "Network test failed"
+curl -s -I https://api.prod.whoop.com/developer/v2/ | head -1 2>/dev/null || echo "Network test failed"
 ```
 
 ### Enable Debug Logging
-Add to Claude Desktop configuration:
+Add to your MCP client configuration:
 ```json
 {
   "mcpServers": {
@@ -307,6 +322,17 @@ Add to Claude Desktop configuration:
     }
   }
 }
+```
+
+For Codex:
+```toml
+[mcp_servers.whoop]
+command = "/absolute/path/to/python"
+args = ["/absolute/path/to/whoop-mcp-server/src/whoop_mcp_server.py"]
+
+[mcp_servers.whoop.env]
+PYTHONPATH = "/absolute/path/to/whoop-mcp-server/src"
+LOG_LEVEL = "DEBUG"
 ```
 
 ## Log Analysis
@@ -326,7 +352,7 @@ Profile result: John
 **Python Path Issues:**
 ```
 spawn python ENOENT
-/opt/miniconda3/bin/python: can't open file '/Users/user/whoop-mcp-server/src/final_whoop_server.py': [Errno 2] No such file or directory
+/opt/miniconda3/bin/python: can't open file '/Users/user/whoop-mcp-server/src/whoop_mcp_server.py': [Errno 2] No such file or directory
 Server transport closed unexpectedly
 ```
 
@@ -396,7 +422,7 @@ When reporting issues, please provide:
 1. **System Information:**
    - Operating System and version
    - Python version (`python --version`)
-   - Claude Desktop version
+   - Claude Desktop or Codex version
 
 2. **Error Details:**
    - Complete error messages
@@ -404,7 +430,7 @@ When reporting issues, please provide:
    - Steps to reproduce
 
 3. **Configuration:**
-   - Your Claude Desktop config (with paths anonymized)
+   - Your Claude Desktop JSON or Codex TOML config (with paths anonymized)
    - Environment variables used
    - Installation method
 
@@ -424,10 +450,10 @@ If nothing else works:
 rm -rf ~/.whoop-mcp-server/
 rm -rf /path/to/whoop-mcp-server/
 
-# 2. Remove from Claude Desktop config
-# Edit claude_desktop_config.json to remove "whoop" entry
+# 2. Remove from your MCP client config
+# Edit claude_desktop_config.json or ~/.codex/config.toml to remove "whoop"
 
-# 3. Restart Claude Desktop
+# 3. Restart Claude Desktop or Codex
 
 # 4. Fresh installation
 git clone https://github.com/romanevstigneev/whoop-mcp-server.git
@@ -435,7 +461,7 @@ cd whoop-mcp-server
 pip install -r requirements.txt
 python setup.py
 
-# 5. Reconfigure Claude Desktop
+# 5. Reconfigure your MCP client
 ```
 
 ### Backup and Restore Tokens

@@ -1,6 +1,6 @@
 # 💡 Usage Examples
 
-This guide shows you how to interact with your WHOOP data through Claude Desktop using natural language queries.
+This guide shows you how to interact with your WHOOP data through Claude Desktop or Codex using natural language queries.
 
 ## 🏃 Basic Queries
 
@@ -98,7 +98,7 @@ This guide shows you how to interact with your WHOOP data through Claude Desktop
 ### Profile Query
 **Input**: "Show me my WHOOP profile"
 
-**Response**: Claude will display your WHOOP profile including:
+**Response**: Claude or Codex will display your WHOOP profile including:
 - User ID and basic info
 - Membership status
 - Account creation date
@@ -107,7 +107,7 @@ This guide shows you how to interact with your WHOOP data through Claude Desktop
 ### Workout Query
 **Input**: "What were my workouts this week?"
 
-**Response**: Claude will show:
+**Response**: Claude or Codex will show:
 - List of workouts with dates and times
 - Workout types and durations
 - Strain scores and calories burned
@@ -116,7 +116,7 @@ This guide shows you how to interact with your WHOOP data through Claude Desktop
 ### Recovery Query
 **Input**: "How is my recovery trending?"
 
-**Response**: Claude will analyze:
+**Response**: Claude or Codex will analyze:
 - Recent recovery scores
 - HRV trends
 - Sleep quality impact
@@ -125,7 +125,7 @@ This guide shows you how to interact with your WHOOP data through Claude Desktop
 ## Tips for Better Results
 
 1. **Be Specific**: Use date ranges for more targeted analysis
-2. **Ask Follow-ups**: Claude can dive deeper into specific metrics
+2. **Ask Follow-ups**: Claude or Codex can dive deeper into specific metrics
 3. **Compare Periods**: Ask about trends and changes over time
 4. **Context Matters**: Mention specific goals or concerns
 5. **Use Natural Language**: Claude understands conversational queries

@@ -1,48 +1,28 @@
 # 🏃 WHOOP MCP Server
 
-> Connect your WHOOP fitness data to Claude Desktop through the Model Context Protocol (MCP)
+> Connect your WHOOP fitness data to Claude Desktop, Codex, and other MCP clients through MCP
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
-[![smithery badge](https://smithery.ai/badge/@RomanEvstigneev/whoop-mcp-server)](https://smithery.ai/server/@RomanEvstigneev/whoop-mcp-server)
-
-Transform your WHOOP fitness data into actionable insights through natural language queries in Claude Desktop. Ask questions about your workouts, recovery, sleep patterns, and more - all while keeping your data secure and private.
-
-> 🚀 **NEW**: Try the [Smithery hosted version](./smithery/) for zero-setup deployment!
+Transform your WHOOP fitness data into actionable insights through natural language queries in Claude Desktop, Codex, or any MCP-compatible client. Ask questions about your workouts, recovery, sleep patterns, and more while keeping your data secure and private.
 
 ## ✨ Features
 
 🔐 **Secure OAuth Integration** - Safe WHOOP account connection with encrypted local storage  
 🏃 **Complete Data Access** - Workouts, recovery, sleep, cycles, and profile information  
-🤖 **Natural Language Queries** - Ask Claude about your fitness data in plain English  
+🤖 **Natural Language Queries** - Ask Claude or Codex about your fitness data in plain English
 ⚡ **Smart Caching** - Optimized performance with intelligent data caching  
 🛡️ **Privacy First** - All data stays on your machine, never sent to third parties  
 🔄 **Auto Token Refresh** - Seamless experience with automatic authentication renewal
 
 ## 🚀 Quick Start
 
-### 🎯 Choose Your Deployment Method
-
-**Option A: Smithery Hosted (Recommended for beginners)**
-- ✅ Zero installation complexity
-- ✅ Automatic updates and maintenance
-- ✅ Enterprise-grade hosting
-- ➡️ **[Get started with Smithery](./smithery/README.md)**
-
-**Option B: Local Installation (Advanced users)**
-- ✅ Full control and privacy
-- ✅ No external dependencies
-- ✅ Customize and extend
-- ➡️ **Continue with local setup below**
-
----
-
-## 📦 Local Installation
+## 📦 Installation
 
 ### 1. Prerequisites
 - Python 3.8+
-- Claude Desktop
+- Claude Desktop or Codex
 - Active WHOOP account
 
 ### 2. Installation
@@ -65,7 +45,7 @@ python setup.py
 This will:
 - Open your browser for WHOOP OAuth authorization
 - Securely save your tokens locally
-- Provide Claude Desktop configuration
+- Provide Claude Desktop and Codex configuration
 
 #### Option B: Manual WHOOP OAuth Setup
 
@@ -128,7 +108,9 @@ If the interactive setup doesn't work, you can manually get your WHOOP tokens:
    "
    ```
 
-### 4. Configure Claude Desktop
+### 4. Configure Your MCP Client
+
+#### Claude Desktop
 
 Add to your Claude Desktop settings:
 
@@ -152,13 +134,32 @@ Add to your Claude Desktop settings:
 
 **⚠️ Important**: Use the full Python path (find yours with `which python3`)
 
-### 5. Restart Claude Desktop
+#### Codex
 
-After adding the configuration, restart Claude Desktop to load the WHOOP server.
+Add this to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.whoop]
+command = "/opt/miniconda3/bin/python"
+args = ["/path/to/whoop-mcp-server/src/whoop_mcp_server.py"]
+
+[mcp_servers.whoop.env]
+PYTHONPATH = "/path/to/whoop-mcp-server/src"
+```
+
+Or add it with the Codex CLI:
+
+```bash
+codex mcp add whoop --env PYTHONPATH=/path/to/whoop-mcp-server/src -- /opt/miniconda3/bin/python /path/to/whoop-mcp-server/src/whoop_mcp_server.py
+```
+
+### 5. Restart Your MCP Client
+
+After adding the configuration, restart Claude Desktop or restart Codex to load the WHOOP server.
 
 ## 💡 Usage Examples
 
-Once configured, you can ask Claude:
+Once configured, you can ask Claude or Codex:
 
 - **"Show my WHOOP profile"**
 - **"What were my workouts this week?"**
@@ -172,35 +173,51 @@ Once configured, you can ask Claude:
 ### `get_whoop_profile`
 Get your WHOOP user profile information.
 
+### `get_whoop_body_measurements`
+Get your WHOOP body measurements.
+
 ### `get_whoop_workouts`
 Get workout data with optional filters:
 - `start_date` (YYYY-MM-DD)
 - `end_date` (YYYY-MM-DD)
 - `limit` (number of results)
+- `next_token` (pagination cursor)
 
 ### `get_whoop_recovery`
 Get recovery data with optional filters:
 - `start_date` (YYYY-MM-DD)
 - `end_date` (YYYY-MM-DD)
 - `limit` (number of results)
+- `next_token` (pagination cursor)
 
 ### `get_whoop_sleep`
 Get sleep data with optional filters:
 - `start_date` (YYYY-MM-DD)
 - `end_date` (YYYY-MM-DD)
 - `limit` (number of results)
+- `next_token` (pagination cursor)
 
 ### `get_whoop_cycles`
 Get physiological cycles (daily data) with optional filters:
 - `start_date` (YYYY-MM-DD)
 - `end_date` (YYYY-MM-DD)
 - `limit` (number of results)
+- `next_token` (pagination cursor)
 
 ### `get_whoop_auth_status`
 Check authentication status and token information.
 
-### `clear_whoop_cache`
-Clear cached data to force fresh API calls.
+### `get_whoop_dashboard_snapshot`
+Get the analyzed dashboard payload used by the local web dashboard.
+
+Optional parameters:
+- `refresh` (set true to bypass cache on this request)
+
+### `get_whoop_full_history`
+Get all dashboard WHOOP sources as raw records.
+
+Optional parameters:
+- `refresh` (set true to bypass cache on this request)
 
 ## 🔐 Security
 
@@ -213,7 +230,7 @@ Clear cached data to force fresh API calls.
 
 - **Smart Caching**: API responses are cached for 5 minutes to improve performance
 - **Rate Limiting**: Built-in rate limiting to respect WHOOP API limits
-- **Cache Control**: Manual cache clearing available
+- **Cache Control**: Snapshot tools support a `refresh` flag to bypass cache
 
 ## 🔧 Configuration
 
@@ -221,41 +238,35 @@ Environment variables (optional):
 - `LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
 - `LOG_FILE`: Log file path (default: console only)
 
-## 🆚 Deployment Comparison
-
-| Feature | [Smithery Hosted](./smithery/) | Local Installation |
-|---------|-----------------|-------------------|
-| **Setup Time** | ⚡ 2 minutes | ⏱️ 10-15 minutes |
-| **Complexity** | 🟢 Beginner-friendly | 🟡 Technical setup required |
-| **Maintenance** | ✅ Zero (auto-updates) | 🔧 Manual updates needed |
-| **Performance** | 🚀 Optimized hosting | 💻 Depends on local setup |
-| **Privacy** | 🌐 Hosted platform | 🔒 Fully local |
-| **Dependencies** | ❌ None | 🐍 Python, packages, OAuth |
-| **Troubleshooting** | 📞 Platform support | 🛠️ Self-service |
-
 ## 📁 File Structure
 
 ```
 whoop-mcp-server/
-├── src/                       # Python local installation
+├── src/                       # Python source files
 │   ├── whoop_mcp_server.py    # Main MCP server
 │   ├── whoop_client.py        # WHOOP API client
 │   ├── auth_manager.py        # Token management
+│   ├── dashboard_analysis.py  # Dashboard analytics aggregation
+│   ├── whoop_dashboard_server.py # Local dashboard server
 │   └── config.py              # Configuration
-├── smithery/                  # TypeScript source files
-│   └── src/
-│       ├── index.ts           # Smithery MCP server
-│       ├── whoop-client.ts    # TypeScript WHOOP client
-│       └── types.ts           # Type definitions
-├── storage/                   # Local installation only
+├── scripts/
+│   └── export_whoop_data.py   # Incremental WHOOP data export utility
+├── storage/                   # Local storage
 │   ├── tokens.json            # Encrypted tokens (auto-generated)
 │   └── .encryption_key        # Encryption key (auto-generated)
-├── package.json               # Node.js dependencies (Smithery)
-├── smithery.yaml              # Smithery configuration (root required)
-├── tsconfig.json              # TypeScript configuration
 ├── setup.py                   # Interactive setup script
+├── setup_direct.py            # Direct OAuth setup using your WHOOP app credentials
 └── requirements.txt           # Python dependencies
 ```
+
+## 🧰 Local Utilities
+
+For local analysis workflows, this repo also includes:
+
+- `python src/whoop_dashboard_server.py` to run a local dashboard UI.
+- `python scripts/export_whoop_data.py` to export WHOOP datasets incrementally.
+
+Export files are written under `storage/exports/`, which stays git-ignored.
 
 ## 🐛 Troubleshooting
 
@@ -271,12 +282,13 @@ whoop-mcp-server/
 - Wait a minute before making more requests
 - Consider using cached data or reducing request frequency
 
-### Claude Desktop doesn't see the server
+### Claude Desktop or Codex doesn't see the server
 - **Use full Python path**: Change `"command": "python"` to `"command": "/opt/miniconda3/bin/python"` (use `which python3` to find yours)
 - **Check correct config file**: Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (not `.claude.json`)
+- **Check Codex config**: Edit `~/.codex/config.toml` or run `codex mcp list`
 - **Use absolute paths**: Full paths like `/Users/username/whoop-mcp-server/src/whoop_mcp_server.py`
 - **Check logs**: `tail -f ~/Library/Logs/Claude/mcp-server-whoop.log`
-- Restart Claude Desktop after configuration changes
+- Restart Claude Desktop or Codex after configuration changes
 
 ## 🔄 Token Refresh
 

@@ -4,14 +4,13 @@ WHOOP API Client for MCP Server
 import httpx
 import json
 import logging
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
+from datetime import datetime
 
 from config import (
     WHOOP_API_BASE,
     REQUEST_TIMEOUT,
     MAX_REQUESTS_PER_MINUTE,
-    CACHE_STORAGE_PATH,
     CACHE_DURATION
 )
 from auth_manager import TokenManager
@@ -108,9 +107,10 @@ class WhoopClient:
                     self._save_to_cache(cache_key, data)
                     return data
                 elif response.status_code == 401:
-                    # Token might be expired, clear cache and try once more
-                    self.token_manager.clear_tokens()
-                    raise Exception("Authentication failed. Please re-authorize your WHOOP account.")
+                    raise Exception(
+                        "WHOOP returned 401 for this request. The token may be expired, "
+                        "missing scope, or unsupported for this endpoint."
+                    )
                 else:
                     raise Exception(f"API request failed with status {response.status_code}: {response.text}")
                     
@@ -123,49 +123,72 @@ class WhoopClient:
     async def get_user_profile(self) -> Dict[str, Any]:
         """Get user profile information"""
         return await self._make_request("/user/profile/basic")
-    
-    async def get_workouts(self, start_date: str = None, end_date: str = None, limit: int = 25) -> Dict[str, Any]:
-        """Get user workouts"""
-        params = {'limit': limit}
-        
+
+    def _build_collection_params(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 25,
+        next_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build WHOOP collection parameters for paginated endpoints."""
+        params: Dict[str, Any] = {"limit": limit}
+
         if start_date:
-            params['start'] = start_date
+            params["start"] = start_date
         if end_date:
-            params['end'] = end_date
-            
+            params["end"] = end_date
+        if next_token:
+            params["nextToken"] = next_token
+
+        return params
+
+    async def get_body_measurements(self) -> Dict[str, Any]:
+        """Get authenticated user's body measurements."""
+        return await self._make_request("/user/measurement/body")
+    
+    async def get_workouts(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 25,
+        next_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get user workouts"""
+        params = self._build_collection_params(start_date, end_date, limit, next_token)
         return await self._make_request("/activity/workout", params)
     
-    async def get_recovery(self, start_date: str = None, end_date: str = None, limit: int = 25) -> Dict[str, Any]:
+    async def get_recovery(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 25,
+        next_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Get user recovery data"""
-        params = {'limit': limit}
-        
-        if start_date:
-            params['start'] = start_date
-        if end_date:
-            params['end'] = end_date
-            
+        params = self._build_collection_params(start_date, end_date, limit, next_token)
         return await self._make_request("/recovery", params)
     
-    async def get_sleep(self, start_date: str = None, end_date: str = None, limit: int = 25) -> Dict[str, Any]:
+    async def get_sleep(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 25,
+        next_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Get user sleep data"""
-        params = {'limit': limit}
-        
-        if start_date:
-            params['start'] = start_date
-        if end_date:
-            params['end'] = end_date
-            
+        params = self._build_collection_params(start_date, end_date, limit, next_token)
         return await self._make_request("/activity/sleep", params)
     
-    async def get_cycles(self, start_date: str = None, end_date: str = None, limit: int = 25) -> Dict[str, Any]:
+    async def get_cycles(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 25,
+        next_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Get user physiological cycles"""
-        params = {'limit': limit}
-        
-        if start_date:
-            params['start'] = start_date
-        if end_date:
-            params['end'] = end_date
-            
+        params = self._build_collection_params(start_date, end_date, limit, next_token)
         return await self._make_request("/cycle", params)
     
     def get_auth_status(self) -> Dict[str, Any]:

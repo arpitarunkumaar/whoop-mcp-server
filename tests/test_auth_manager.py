@@ -105,7 +105,7 @@ class TestTokenManager(unittest.TestCase):
         access_token = tm.get_valid_access_token()
         self.assertIsNone(access_token)
     
-    @patch('auth_manager.httpx.AsyncClient.post')
+    @patch('requests.post')
     def test_token_refresh(self, mock_post):
         """Test token refresh functionality"""
         # Mock successful refresh response

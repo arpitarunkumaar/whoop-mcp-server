@@ -11,7 +11,7 @@ This guide provides step-by-step instructions for installing and configuring the
 - **Storage**: ~50MB for installation
 
 ### External Dependencies
-- **Claude Desktop**: Latest version installed
+- **Claude Desktop or Codex**: Latest version installed
 - **Internet Connection**: Required for WHOOP API access and initial setup
 - **WHOOP Account**: Active WHOOP subscription with data
 
@@ -56,7 +56,7 @@ python setup.py
 3. **User Authorization**: You authorize the application with your WHOOP account
 4. **Token Exchange**: Authorization code is exchanged for access tokens
 5. **Secure Storage**: Tokens are encrypted and saved locally
-6. **Configuration Generation**: Claude Desktop config is provided
+6. **Configuration Generation**: Claude Desktop and Codex config is provided
 
 ### Expected Output:
 ```
@@ -80,9 +80,11 @@ Authorization code: [PASTE CODE HERE]
 ✅ Tokens saved successfully!
 ```
 
-## Step 3: Configure Claude Desktop
+## Step 3: Configure Your MCP Client
 
-### Locate Claude Desktop Configuration File
+### Option A: Claude Desktop
+
+Locate the Claude Desktop configuration file:
 
 **macOS:**
 ```bash
@@ -148,22 +150,41 @@ Add the WHOOP MCP server to your configuration:
 }
 ```
 
-## Step 4: Restart Claude Desktop
+### Option B: Codex
 
-1. **Completely quit** Claude Desktop (not just minimize)
-2. **Relaunch** Claude Desktop
+Add the WHOOP MCP server to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.whoop]
+command = "/opt/miniconda3/bin/python"
+args = ["/full/path/to/whoop-mcp-server/src/whoop_mcp_server.py"]
+
+[mcp_servers.whoop.env]
+PYTHONPATH = "/full/path/to/whoop-mcp-server/src"
+```
+
+You can also add the same entry with the Codex CLI:
+
+```bash
+codex mcp add whoop --env PYTHONPATH=/full/path/to/whoop-mcp-server/src -- /opt/miniconda3/bin/python /full/path/to/whoop-mcp-server/src/whoop_mcp_server.py
+```
+
+## Step 4: Restart Your MCP Client
+
+1. **Completely quit** Claude Desktop or restart Codex
+2. Relaunch the client
 3. Wait for the application to fully load
 4. Check that the WHOOP server appears in available tools
 
 ## Step 5: Verification
 
 ### Test Server Connection
-In Claude Desktop, try asking:
+In Claude Desktop or Codex, try asking:
 - "What WHOOP tools are available?"
 - "Show my WHOOP authentication status"
 
 ### Expected Response:
-Claude should recognize WHOOP tools and be able to execute them.
+Your MCP client should recognize WHOOP tools and be able to execute them.
 
 ### Check Logs (if issues occur):
 **macOS:**
@@ -175,13 +196,14 @@ tail -f ~/Library/Logs/Claude/mcp-server-whoop.log
 - macOS: `~/Library/Logs/Claude/`
 - Windows: `%LOCALAPPDATA%\Claude\logs\`
 - Linux: `~/.local/share/Claude/logs/`
+- Codex config: `~/.codex/config.toml`
 
 ## Troubleshooting
 
 ### Common Installation Issues
 
 #### Issue 1: "spawn python ENOENT" Error
-**Problem:** Claude Desktop can't find the Python interpreter.
+**Problem:** Claude Desktop or Codex can't find the Python interpreter.
 
 **Solution:**
 ```bash
@@ -190,7 +212,7 @@ which python3
 # or
 which python
 
-# Use the full path in claude_desktop_config.json
+# Use the full path in your MCP client config
 {
   "mcpServers": {
     "whoop": {
@@ -262,10 +284,11 @@ raw_token_file.unlink()  # Clean up
 ```
 
 #### Issue 3: Wrong Configuration File
-**Problem:** Adding config to wrong file (e.g., `.claude.json` instead of `claude_desktop_config.json`).
+**Problem:** Adding config to the wrong client file.
 
 **Solution:** Ensure you're editing the correct file:
 - **Correct:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Correct for Codex:** `~/.codex/config.toml`
 - **Incorrect:** `~/.claude.json` (this is for Claude Code, not Claude Desktop)
 
 ### Python Path Issues
@@ -294,8 +317,8 @@ python setup.py
 ls -la ~/.whoop-mcp-server/
 ```
 
-### Claude Desktop Issues
-If Claude doesn't see the server:
+### Claude Desktop or Codex Issues
+If your MCP client doesn't see the server:
 
 1. **Check JSON syntax** in config file using a JSON validator
 2. **Verify paths** are absolute and correct
@@ -311,6 +334,11 @@ If Claude doesn't see the server:
 6. **Check Claude Desktop logs** for specific errors:
    ```bash
    tail -f ~/Library/Logs/Claude/mcp-server-whoop.log
+   ```
+
+7. **Check Codex registration**:
+   ```bash
+   codex mcp list
    ```
 
 ### Network Issues
@@ -362,10 +390,10 @@ rm -rf /path/to/whoop-mcp-server
 # Remove token storage
 rm -rf ~/.whoop-mcp-server
 
-# Remove from Claude Desktop config
-# Edit claude_desktop_config.json and remove the "whoop" entry
+# Remove from your MCP client config
+# Edit claude_desktop_config.json or ~/.codex/config.toml and remove "whoop"
 
-# Restart Claude Desktop
+# Restart Claude Desktop or Codex
 ```
 
 ## Getting Help
@@ -384,5 +412,5 @@ If you encounter issues:
 
 Once installation is complete:
 - Read the [Usage Examples](../examples/usage_examples.md)
-- Explore available WHOOP tools in Claude Desktop
+- Explore available WHOOP tools in Claude Desktop or Codex
 - Check the [Troubleshooting Guide](TROUBLESHOOTING.md) if you encounter issues

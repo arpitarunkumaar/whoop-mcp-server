@@ -8,7 +8,7 @@ version = "1.0.0"
 authors = [
     {name = "Roman Evstigneev", email = "evstigneevromanv@gmail.com"}
 ]
-description = "WHOOP MCP Server for Claude Desktop - Connect your WHOOP fitness data through Model Context Protocol"
+description = "WHOOP MCP Server for Claude Desktop, Codex, and other MCP clients"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.8"
@@ -33,6 +33,7 @@ keywords = [
     "fitness",
     "mcp",
     "claude",
+    "codex",
     "api",
     "health",
     "wearable",

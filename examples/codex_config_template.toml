@@ -1,0 +1,6 @@
+[mcp_servers.whoop]
+command = "/FULL/PATH/TO/python"
+args = ["/FULL/PATH/TO/whoop-mcp-server/src/whoop_mcp_server.py"]
+
+[mcp_servers.whoop.env]
+PYTHONPATH = "/FULL/PATH/TO/whoop-mcp-server/src"

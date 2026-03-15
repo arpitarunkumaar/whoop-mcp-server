@@ -89,6 +89,7 @@ celerybeat-schedule
 # Environments
 .env
 .venv
+.venv311/
 env/
 venv/
 ENV/
@@ -139,17 +140,11 @@ test_*_real.py
 
 # Logs
 *.log
+log.txt
 logs/
 
 # Backup files
 *.bak
 *.backup
 *.orig
-*.tmp# Node.js dependencies and build artifacts
-node_modules/
-*.log
-.smithery/
-dist/
-
-# Keep package-lock.json for Smithery deployment
-# package-lock.json should be committed for reproducible builds
+*.tmp

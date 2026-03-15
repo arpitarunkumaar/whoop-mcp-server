@@ -11,12 +11,15 @@ OAUTH_TOKEN_URL = f"{OAUTH_BASE_URL}/api/get-tokens"
 OAUTH_REFRESH_URL = f"{OAUTH_BASE_URL}/api/refresh-token"
 
 # WHOOP API configuration
-WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v1"
+# WHOOP removed v1 after October 1, 2025, so the live API now requires v2.
+WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v2"
 WHOOP_SCOPES = [
     "read:profile",
-    "read:workout", 
+    "read:workout",
     "read:sleep",
     "read:recovery",
+    "read:cycles",
+    "read:body_measurement",
     "offline"
 ]
 
