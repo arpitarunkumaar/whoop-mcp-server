@@ -1,5 +1,4 @@
-# FastMCP currently requires Python 3.10+, but local setup/dashboard work on 3.9.
-mcp>=1.0.0; python_version >= "3.10"
+mcp>=1.0.0
 httpx>=0.25.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0

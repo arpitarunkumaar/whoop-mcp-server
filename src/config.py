@@ -2,17 +2,19 @@
 Configuration for WHOOP MCP Server
 """
 import os
-from typing import Optional
+from pathlib import Path
 
-# OAuth application endpoints
-OAUTH_BASE_URL = "https://personal-integrations-462307.uc.r.appspot.com"
-OAUTH_AUTH_URL = f"{OAUTH_BASE_URL}/"
-OAUTH_TOKEN_URL = f"{OAUTH_BASE_URL}/api/get-tokens"
-OAUTH_REFRESH_URL = f"{OAUTH_BASE_URL}/api/refresh-token"
+from dotenv import load_dotenv
+
+# Load environment variables from the repo root when present, then merge process env.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(REPO_ROOT / ".env")
+load_dotenv()
 
 # WHOOP API configuration
-# WHOOP removed v1 after October 1, 2025, so the live API now requires v2.
 WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v2"
+WHOOP_OAUTH_AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth"
+WHOOP_OAUTH_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
 WHOOP_SCOPES = [
     "read:profile",
     "read:workout",
@@ -24,7 +26,6 @@ WHOOP_SCOPES = [
 ]
 
 # Storage configuration
-import os
 HOME_DIR = os.path.expanduser("~")
 STORAGE_DIR = os.path.join(HOME_DIR, ".whoop-mcp-server")
 TOKEN_STORAGE_PATH = os.path.join(STORAGE_DIR, "tokens.json")

@@ -1,388 +1,286 @@
 #!/usr/bin/env python3
 """
-WHOOP MCP Server Setup Script
-Interactive setup for WHOOP OAuth authorization
+WHOOP OAuth Setup.
+Spins up a local callback server so WHOOP redirects straight to your machine.
+
+Usage:
+    python3 setup.py --client-id YOUR_ID --client-secret YOUR_SECRET
 """
+
+import argparse
 import os
 import sys
-import webbrowser
-import requests
 import json
-import shlex
+import secrets
+import webbrowser
+import urllib.parse
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from datetime import datetime
 
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
-from src.auth_manager import TokenManager
-from src.config import OAUTH_AUTH_URL, OAUTH_TOKEN_URL
+# ── Config ────────────────────────────────────────────────────────────────────
+WHOOP_AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth"
+WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
+DEFAULT_SCOPES = (
+    "read:profile read:workout read:sleep read:recovery "
+    "read:cycles read:body_measurement offline"
+)
 
 class Colors:
-    """Terminal colors for better UX"""
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
+    OK      = '\033[92m'
+    INFO    = '\033[94m'
+    WARN    = '\033[93m'
+    FAIL    = '\033[91m'
+    HEADER  = '\033[95m'
+    BOLD    = '\033[1m'
+    END     = '\033[0m'
 
-def print_colored(text, color=Colors.ENDC):
-    """Print colored text"""
-    print(f"{color}{text}{Colors.ENDC}")
+def c(text, color): print(f"{color}{text}{Colors.END}")
 
-def print_banner():
-    """Print setup banner"""
-    print_colored("=" * 60, Colors.HEADER)
-    print_colored("🏃 WHOOP MCP Server Setup", Colors.HEADER)
-    print_colored("=" * 60, Colors.HEADER)
-    print_colored(
-        "This setup will help you connect your WHOOP account to Claude Desktop or Codex",
-        Colors.OKBLUE,
+
+SETUPTOOLS_COMMANDS = {
+    "build",
+    "build_py",
+    "build_ext",
+    "sdist",
+    "bdist",
+    "bdist_wheel",
+    "bdist_egg",
+    "install",
+    "develop",
+    "egg_info",
+    "dist_info",
+    "clean",
+    "check",
+    "rotate",
+}
+
+SETUPTOOLS_QUERY_FLAGS = {
+    "--help",
+    "-h",
+    "--help-commands",
+    "--name",
+    "--version",
+    "--fullname",
+    "--author",
+    "--author-email",
+    "--maintainer",
+    "--maintainer-email",
+    "--contact",
+    "--contact-email",
+    "--url",
+    "--license",
+    "--description",
+    "--long-description",
+    "--platforms",
+    "--classifiers",
+    "--keywords",
+    "--provides",
+    "--requires",
+    "--obsoletes",
+}
+
+
+def should_run_setuptools(argv: list[str]) -> bool:
+    """Return True when setup.py is being invoked as a packaging entrypoint."""
+    args = argv[1:]
+    if any(flag in SETUPTOOLS_QUERY_FLAGS for flag in args):
+        return True
+
+    for arg in args:
+        if arg.startswith("-"):
+            continue
+        return arg in SETUPTOOLS_COMMANDS
+
+    return False
+
+# ── Callback handler ──────────────────────────────────────────────────────────
+_auth_code = None
+_server_done = threading.Event()
+_expected_state = None  # set before the browser opens
+
+class CallbackHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        global _auth_code
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
+
+        if "error" in params:
+            error = params.get("error", ["unknown"])[0]
+            body = f"<h2>Authorization failed: {error}</h2>".encode()
+            self.send_response(400)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(body)
+            _server_done.set()
+            return
+
+        received_state = params.get("state", [None])[0]
+        if received_state != _expected_state:
+            body = b"<h2>State mismatch - possible CSRF. Please try again.</h2>"
+            self.send_response(400)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(body)
+            _server_done.set()
+            return
+
+        if "code" in params:
+            _auth_code = params["code"][0]
+            body = b"<h2>Authorization successful! You can close this tab.</h2>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+        _server_done.set()
+
+    def log_message(self, *args):
+        pass  # suppress request logs
+
+
+def run_server(host, port):
+    server = HTTPServer((host, port), CallbackHandler)
+    server.handle_request()  # handle exactly one request then exit
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+def main():
+    import requests
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+    from src.auth_manager import TokenManager
+
+    parser = argparse.ArgumentParser(description="Direct WHOOP OAuth setup")
+    parser.add_argument("--client-id",     required=True, help="WHOOP app Client ID")
+    parser.add_argument("--client-secret", required=True, help="WHOOP app Client Secret")
+    parser.add_argument(
+        "--callback-host",
+        default="127.0.0.1",
+        help="Local host for the OAuth callback server.",
     )
+    parser.add_argument(
+        "--callback-port",
+        type=int,
+        default=8786,
+        help="Local port for the OAuth callback server.",
+    )
+    parser.add_argument(
+        "--scopes",
+        default=DEFAULT_SCOPES,
+        help=(
+            "Space-separated WHOOP scopes to request. This must match the scopes "
+            "configured on your WHOOP developer app."
+        ),
+    )
+    args = parser.parse_args()
+    redirect_uri = f"http://{args.callback_host}:{args.callback_port}/callback"
+
+    c("=" * 60, Colors.HEADER)
+    c("🏃 WHOOP Direct OAuth Setup", Colors.HEADER)
+    c("=" * 60, Colors.HEADER)
     print()
 
-def check_dependencies():
-    """Check if required dependencies are installed"""
-    print_colored("🔍 Checking dependencies...", Colors.OKBLUE)
-    
-    try:
-        import requests
-        import httpx
-        import cryptography
-        print_colored("✅ Setup dependencies are installed", Colors.OKGREEN)
-        if sys.version_info < (3, 10):
-            print_colored(
-                "ℹ️ Python 3.9 is fine for OAuth setup and the dashboard.", Colors.OKBLUE
-            )
-            print_colored(
-                "   The MCP server package itself now requires Python 3.10+.",
-                Colors.OKBLUE,
-            )
-        return True
-    except ImportError as e:
-        print_colored(f"❌ Missing dependency: {e}", Colors.FAIL)
-        print_colored("Please install dependencies:", Colors.WARNING)
-        print_colored("pip install -r requirements.txt", Colors.WARNING)
-        return False
-
-def setup_storage():
-    """Create storage directory if it doesn't exist"""
-    storage_dir = Path("storage")
-    storage_dir.mkdir(exist_ok=True)
-    print_colored(f"📁 Storage directory ready: {storage_dir.absolute()}", Colors.OKGREEN)
-
-def get_authorization_code():
-    """Get authorization code from user"""
-    print_colored("\n🔐 WHOOP OAuth Authorization", Colors.HEADER)
-    print_colored("Step 1: We'll open your browser to authorize WHOOP access", Colors.OKBLUE)
-    print_colored("Step 2: After authorization, you'll get a success page", Colors.OKBLUE)
-    print_colored("Step 3: Copy the authorization code from the success page", Colors.OKBLUE)
-    print_colored(f"Auth URL: {OAUTH_AUTH_URL}", Colors.OKBLUE)
+    c("Before continuing, add this Redirect URI to your WHOOP Developer app:", Colors.INFO)
+    c(f"  {redirect_uri}", Colors.BOLD)
+    c("Requested scopes:", Colors.INFO)
+    c(f"  {args.scopes}", Colors.BOLD)
     print()
 
-    # Print all instructions BEFORE opening the browser so nothing runs after
-    # the browser opens — the auth server session can expire quickly.
-    print_colored("⚡ IMPORTANT: Act fast once the browser opens!", Colors.WARNING)
-    print_colored("   Log in and click Authorize immediately.", Colors.WARNING)
-    print_colored("   After the success page appears, copy the authorization code", Colors.WARNING)
-    print_colored("   and paste it below. You have ~60 seconds.", Colors.WARNING)
+    # Start local callback server in background
+    t = threading.Thread(
+        target=run_server, args=(args.callback_host, args.callback_port), daemon=True
+    )
+    t.start()
+
+    # Generate a random state value for CSRF protection
+    global _expected_state
+    _expected_state = secrets.token_urlsafe(16)
+
+    # Build the WHOOP authorization URL
+    auth_params = {
+        "client_id":     args.client_id,
+        "redirect_uri":  redirect_uri,
+        "response_type": "code",
+        "scope":         args.scopes,
+        "state":         _expected_state,
+    }
+    auth_url = f"{WHOOP_AUTH_URL}?{urllib.parse.urlencode(auth_params)}"
+
+    c("Opening browser for WHOOP authorization...", Colors.INFO)
+    c("Log in and click Authorize. This page will close automatically.", Colors.WARN)
     print()
+    webbrowser.open(auth_url)
 
-    # Ask user if they want to continue
-    response = input("Ready to start authorization? (y/n): ").lower().strip()
-    if response != 'y':
-        print_colored("Setup cancelled by user", Colors.WARNING)
-        return None
+    # Wait for callback (timeout 120s)
+    completed = _server_done.wait(timeout=120)
+    if not completed or not _auth_code:
+        c("❌ Timed out waiting for authorization. Please try again.", Colors.FAIL)
+        sys.exit(1)
 
-    while True:
-        # Open browser — then immediately show the prompt with no extra output
-        try:
-            webbrowser.open(OAUTH_AUTH_URL)
-        except Exception as e:
-            print_colored(f"⚠️ Could not open browser automatically: {e}", Colors.WARNING)
-            print_colored(f"Please manually open: {OAUTH_AUTH_URL}", Colors.WARNING)
+    c("✅ Authorization code received!", Colors.OK)
 
-        print_colored(
-            "If the page says 'Session expired', close it and type 'retry' below.",
-            Colors.WARNING,
-        )
-        auth_code = input(
-            "📝 Paste the authorization code here (or type 'retry' / 'cancel'): "
-        ).strip()
+    # Exchange code for tokens directly with WHOOP
+    c("\n🔄 Exchanging code for tokens...", Colors.INFO)
+    resp = requests.post(
+        WHOOP_TOKEN_URL,
+        data={
+            "grant_type":    "authorization_code",
+            "code":          _auth_code,
+            "redirect_uri":  redirect_uri,
+            "client_id":     args.client_id,
+            "client_secret": args.client_secret,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+    )
 
-        if not auth_code:
-            print_colored("❌ No authorization code provided", Colors.FAIL)
-            continue
+    if resp.status_code != 200:
+        c(f"❌ Token exchange failed ({resp.status_code}): {resp.text}", Colors.FAIL)
+        sys.exit(1)
 
-        lowered = auth_code.lower()
-        if lowered in {"cancel", "quit", "q", "n"}:
-            print_colored("Setup cancelled by user", Colors.WARNING)
-            return None
-        if lowered in {"retry", "r"}:
-            print_colored("🔄 Reopening WHOOP authorization...", Colors.OKBLUE)
-            continue
+    token_data = resp.json()
+    token_data["success"] = True  # Backward compatibility with old token payload checks.
+    token_data["client_id"] = args.client_id
+    token_data["client_secret"] = args.client_secret
 
-        # Validate format (basic check)
-        if len(auth_code) < 20:
-            print_colored(
-                "⚠️ Authorization code seems too short. If you saw 'Session expired', type 'retry'.",
-                Colors.WARNING,
-            )
-            continue
+    # Save tokens
+    c("💾 Saving tokens...", Colors.INFO)
+    TokenManager().save_tokens(token_data)
+    c("✅ Tokens saved successfully!", Colors.OK)
 
-        return auth_code
-
-def exchange_code_for_tokens(auth_code):
-    """Exchange authorization code for tokens"""
-    print_colored("\n🔄 Exchanging authorization code for tokens...", Colors.OKBLUE)
-    
-    try:
-        # Make request to our OAuth app
-        url = f"{OAUTH_TOKEN_URL}/{auth_code}"
-        response = requests.get(url, timeout=30)
-        
-        if response.status_code == 200:
-            token_data = response.json()
-            
-            if token_data.get('success'):
-                print_colored("✅ Successfully obtained tokens!", Colors.OKGREEN)
-                return token_data
-            else:
-                print_colored(f"❌ Token exchange failed: {token_data.get('error', 'Unknown error')}", Colors.FAIL)
-                return None
-        else:
-            print_colored(f"❌ HTTP Error {response.status_code}: {response.text}", Colors.FAIL)
-            return None
-            
-    except requests.exceptions.Timeout:
-        print_colored("❌ Request timed out. Please check your internet connection.", Colors.FAIL)
-        return None
-    except requests.exceptions.RequestException as e:
-        print_colored(f"❌ Network error: {e}", Colors.FAIL)
-        return None
-    except Exception as e:
-        print_colored(f"❌ Unexpected error: {e}", Colors.FAIL)
-        return None
-
-def save_tokens(token_data):
-    """Save tokens using TokenManager"""
-    print_colored("💾 Saving tokens securely...", Colors.OKBLUE)
-    
-    try:
-        token_manager = TokenManager()
-        token_manager.save_tokens(token_data)
-        print_colored("✅ Tokens saved successfully!", Colors.OKGREEN)
-        return True
-    except Exception as e:
-        print_colored(f"❌ Failed to save tokens: {e}", Colors.FAIL)
-        return False
-
-def verify_setup():
-    """Verify that setup was successful"""
-    print_colored("\n🔍 Verifying setup...", Colors.OKBLUE)
-    
-    try:
-        token_manager = TokenManager()
-        token_info = token_manager.get_token_info()
-        
-        if token_info['status'] == 'no_tokens':
-            print_colored("❌ No tokens found after setup", Colors.FAIL)
-            return False
-        
-        if token_info['status'] == 'expired':
-            print_colored("⚠️ Tokens are expired, but setup completed", Colors.WARNING)
-            print_colored("   The refresh token should allow automatic renewal", Colors.WARNING)
-        else:
-            print_colored("✅ Valid tokens found", Colors.OKGREEN)
-        
-        print_colored(f"   Token type: {token_info['token_type']}", Colors.OKBLUE)
-        print_colored(f"   Expires at: {token_info['expires_at']}", Colors.OKBLUE)
-        print_colored(f"   Has refresh token: {token_info['has_refresh_token']}", Colors.OKBLUE)
-        
-        return True
-        
-    except Exception as e:
-        print_colored(f"❌ Setup verification failed: {e}", Colors.FAIL)
-        return False
-
-def show_client_configs():
-    """Show Claude Desktop and Codex configurations"""
-    print_colored("\n🤖 MCP Client Configuration", Colors.HEADER)
-    print_colored("Add one of these snippets to your MCP client settings:", Colors.OKBLUE)
-    print()
-
-    server_path = (Path(__file__).parent / "src" / "whoop_mcp_server.py").absolute()
-    src_path = server_path.parent
-    python_path = Path(sys.executable).absolute()
-
+    # Print Claude Desktop config
+    server_path = Path(__file__).parent / "src" / "whoop_mcp_server.py"
     config = {
         "mcpServers": {
             "whoop": {
-                "command": str(python_path),
-                "args": [str(server_path)],
-                "env": {
-                    "PYTHONPATH": str(src_path),
-                },
+                "command": sys.executable,
+                "args": [str(server_path.absolute())],
+                "env": {"PYTHONPATH": str(Path(__file__).parent / "src")}
             }
         }
     }
 
-    print_colored("Claude Desktop JSON:", Colors.OKGREEN)
-    print_colored(json.dumps(config, indent=2), Colors.OKGREEN)
     print()
-
-    if sys.platform == "darwin":  # macOS
-        print_colored("📍 Claude Desktop settings location (macOS):", Colors.OKBLUE)
-        print_colored("~/Library/Application Support/Claude/claude_desktop_config.json", Colors.OKBLUE)
-    elif sys.platform == "win32":  # Windows
-        print_colored("📍 Claude Desktop settings location (Windows):", Colors.OKBLUE)
-        print_colored("%APPDATA%\\Claude\\claude_desktop_config.json", Colors.OKBLUE)
-    else:  # Linux
-        print_colored("📍 Claude Desktop settings location (Linux):", Colors.OKBLUE)
-        print_colored("~/.config/claude/claude_desktop_config.json", Colors.OKBLUE)
+    c("🎉 Setup complete! Add this to your Claude Desktop config:", Colors.HEADER)
+    c("  macOS: ~/Library/Application Support/Claude/claude_desktop_config.json", Colors.INFO)
     print()
-
-    codex_config = "\n".join(
-        [
-            "[mcp_servers.whoop]",
-            f'command = "{python_path}"',
-            f'args = ["{server_path}"]',
-            "",
-            "[mcp_servers.whoop.env]",
-            f'PYTHONPATH = "{src_path}"',
-        ]
-    )
-
-    print_colored("Codex config.toml:", Colors.OKGREEN)
-    print_colored(codex_config, Colors.OKGREEN)
+    print(json.dumps(config, indent=2))
     print()
-    print_colored("📍 Codex settings location:", Colors.OKBLUE)
-    print_colored("~/.codex/config.toml", Colors.OKBLUE)
-    print()
-    print_colored("Or add it with the Codex CLI:", Colors.OKBLUE)
-    print_colored(
-        "codex mcp add whoop "
-        f"--env {shlex.quote(f'PYTHONPATH={src_path}')} -- "
-        f"{shlex.quote(str(python_path))} {shlex.quote(str(server_path))}",
-        Colors.OKBLUE,
-    )
+    c("Then restart Claude Desktop.", Colors.WARN)
 
-def show_usage_examples():
-    """Show usage examples"""
-    print_colored("\n💡 Usage Examples", Colors.HEADER)
-    print_colored("Once configured, you can ask Claude or Codex:", Colors.OKBLUE)
-    print()
-    print_colored("• \"Show my WHOOP profile\"", Colors.OKGREEN)
-    print_colored("• \"What were my workouts this week?\"", Colors.OKGREEN)
-    print_colored("• \"How is my recovery trending?\"", Colors.OKGREEN)
-    print_colored("• \"Show my sleep data for the last 7 days\"", Colors.OKGREEN)
-    print_colored("• \"What's my HRV looking like?\"", Colors.OKGREEN)
-    print()
-
-def main():
-    """Main setup function"""
-    print_banner()
-    
-    # Check dependencies
-    if not check_dependencies():
-        sys.exit(1)
-    
-    # Setup storage
-    setup_storage()
-    
-    # Check if already configured
-    try:
-        token_manager = TokenManager()
-        token_info = token_manager.get_token_info()
-        
-        if token_info['status'] in ['valid', 'expired']:
-            print_colored("⚠️ WHOOP tokens already exist", Colors.WARNING)
-            print_colored(f"   Status: {token_info['status']}", Colors.WARNING)
-            print_colored(f"   Expires: {token_info['expires_at']}", Colors.WARNING)
-            print()
-            
-            response = input("Reconfigure anyway? (y/n): ").lower().strip()
-            if response != 'y':
-                print_colored("Setup cancelled. Existing tokens preserved.", Colors.WARNING)
-                show_client_configs()
-                show_usage_examples()
-                return
-    except Exception:
-        pass  # No existing tokens, continue with setup
-    
-    token_data = None
-    for attempt in range(3):
-        if attempt:
-            print_colored(
-                f"\n🔁 Retrying authorization ({attempt + 1}/3)...", Colors.WARNING
-            )
-
-        auth_code = get_authorization_code()
-        if not auth_code:
-            sys.exit(1)
-
-        token_data = exchange_code_for_tokens(auth_code)
-        if token_data:
-            break
-
-        print_colored(
-            "⚠️ Authorization did not complete. We'll open a fresh WHOOP session.",
-            Colors.WARNING,
-        )
-
-    if not token_data:
-        print_colored(
-            "❌ Failed to obtain WHOOP tokens after 3 attempts.", Colors.FAIL
-        )
-        print()
-        print_colored(
-            "The hosted broker flow appears unavailable or its session is expiring.",
-            Colors.WARNING,
-        )
-        print_colored(
-            "Use the official WHOOP OAuth flow instead:", Colors.OKBLUE
-        )
-        print_colored(
-            "1. Create a WHOOP app in the Developer Dashboard", Colors.OKBLUE
-        )
-        print_colored(
-            "2. Add redirect URI http://127.0.0.1:8786/callback", Colors.OKBLUE
-        )
-        print_colored(
-            "3. Run: python3 setup_direct.py --client-id YOUR_ID --client-secret YOUR_SECRET",
-            Colors.OKBLUE,
-        )
-        sys.exit(1)
-    
-    # Save tokens
-    if not save_tokens(token_data):
-        sys.exit(1)
-    
-    # Verify setup
-    if not verify_setup():
-        sys.exit(1)
-    
-    # Show success and configuration
-    print_colored("\n🎉 Setup Complete!", Colors.OKGREEN)
-    print_colored("Your WHOOP account is now connected to the MCP server!", Colors.OKGREEN)
-    
-    show_client_configs()
-    show_usage_examples()
-    
-    print_colored("\n🚀 Next Steps:", Colors.HEADER)
-    print_colored("1. Add the configuration to Claude Desktop or Codex", Colors.OKBLUE)
-    print_colored("2. Restart your MCP client", Colors.OKBLUE)
-    print_colored("3. Start asking Claude or Codex about your WHOOP data!", Colors.OKBLUE)
-    print()
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print_colored("\n\n⚠️ Setup interrupted by user", Colors.WARNING)
-        sys.exit(1)
-    except Exception as e:
-        print_colored(f"\n❌ Unexpected error: {e}", Colors.FAIL)
-        sys.exit(1)
+    if should_run_setuptools(sys.argv):
+        from setuptools import setup as setuptools_setup
+
+        setuptools_setup()
+    else:
+        try:
+            main()
+        except KeyboardInterrupt:
+            c("\n⚠️  Cancelled.", Colors.WARN)
+            sys.exit(1)

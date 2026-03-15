@@ -112,7 +112,6 @@ class TestTokenManager(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            'success': True,
             'access_token': 'new_access_token',
             'refresh_token': 'new_refresh_token',
             'expires_in': 3600,
@@ -123,7 +122,11 @@ class TestTokenManager(unittest.TestCase):
         tm = TokenManager()
         
         # Test refresh
-        result = tm.refresh_tokens('old_refresh_token')
+        result = tm.refresh_tokens(
+            'old_refresh_token',
+            client_id='test_client_id',
+            client_secret='test_client_secret',
+        )
         
         self.assertIsNotNone(result)
         self.assertEqual(result['access_token'], 'new_access_token')

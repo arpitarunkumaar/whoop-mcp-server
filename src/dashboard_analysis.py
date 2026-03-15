@@ -227,7 +227,7 @@ class DashboardAnalyzer:
             return self._empty_payload(
                 auth_status,
                 "No WHOOP tokens were found for the local dashboard.",
-                "Run `python3 setup.py` in this repo, authorize WHOOP once, then refresh the page.",
+                "Run `python3.11 setup.py --client-id YOUR_ID --client-secret YOUR_SECRET`, then refresh the page.",
             )
 
         (

@@ -11,7 +11,7 @@ authors = [
 description = "WHOOP MCP Server for Claude Desktop, Codex, and other MCP clients"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -19,8 +19,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Topic :: Communications",
@@ -65,13 +63,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/romanevstigneev/whoop-mcp-server"
-Documentation = "https://github.com/romanevstigneev/whoop-mcp-server#readme"
-Repository = "https://github.com/romanevstigneev/whoop-mcp-server"
-"Bug Reports" = "https://github.com/romanevstigneev/whoop-mcp-server/issues"
-
-[project.scripts]
-whoop-mcp-setup = "setup:main"
+Homepage = "https://github.com/arpitarunkumaar/whoop-mcp-server"
+Documentation = "https://github.com/arpitarunkumaar/whoop-mcp-server#readme"
+Repository = "https://github.com/arpitarunkumaar/whoop-mcp-server"
+"Bug Reports" = "https://github.com/arpitarunkumaar/whoop-mcp-server/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -81,7 +76,7 @@ where = ["src"]
 
 [tool.black]
 line-length = 88
-target-version = ['py38', 'py39', 'py310', 'py311']
+target-version = ['py310', 'py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -104,7 +99,7 @@ line_length = 88
 known_first_party = ["whoop_mcp_server", "whoop_client", "auth_manager", "config"]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

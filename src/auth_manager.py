@@ -3,18 +3,15 @@ Token management for WHOOP MCP Server
 """
 import json
 import os
-import time
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from cryptography.fernet import Fernet
-import httpx
 import logging
 
 from config import (
     TOKEN_STORAGE_PATH,
     ENCRYPTION_KEY_FILE,
-    OAUTH_TOKEN_URL,
-    OAUTH_REFRESH_URL,
+    WHOOP_OAUTH_TOKEN_URL,
     REQUEST_TIMEOUT
 )
 
@@ -61,15 +58,22 @@ class TokenManager:
             # Calculate expiration time
             expires_in = tokens.get('expires_in', 3600)  # Default 1 hour
             expires_at = datetime.now() + timedelta(seconds=expires_in)
-            
+            refresh_token = tokens.get('refresh_token', '')
+
             # Prepare data for storage
             token_data = {
                 'access_token': self._encrypt_data(tokens['access_token']),
-                'refresh_token': self._encrypt_data(tokens.get('refresh_token', '')),
+                'refresh_token': self._encrypt_data(refresh_token),
                 'token_type': tokens.get('token_type', 'Bearer'),
                 'expires_at': expires_at.isoformat(),
                 'created_at': datetime.now().isoformat()
             }
+
+            # Persist OAuth app credentials when available so refresh can run locally.
+            if tokens.get("client_id"):
+                token_data["client_id"] = self._encrypt_data(tokens["client_id"])
+            if tokens.get("client_secret"):
+                token_data["client_secret"] = self._encrypt_data(tokens["client_secret"])
             
             # Save to file
             with open(self.storage_path, 'w') as f:
@@ -113,6 +117,11 @@ class TokenManager:
                     'expires_at': encrypted_data['expires_at'],
                     'created_at': encrypted_data['created_at']
                 }
+
+                if encrypted_data.get("client_id"):
+                    tokens["client_id"] = self._decrypt_data(encrypted_data["client_id"])
+                if encrypted_data.get("client_secret"):
+                    tokens["client_secret"] = self._decrypt_data(encrypted_data["client_secret"])
                 
                 return tokens
             
@@ -143,7 +152,11 @@ class TokenManager:
         
         # Try to refresh token
         logger.info("Access token expired, attempting refresh")
-        refreshed_tokens = self.refresh_tokens(tokens['refresh_token'])
+        refreshed_tokens = self.refresh_tokens(
+            tokens['refresh_token'],
+            client_id=tokens.get("client_id"),
+            client_secret=tokens.get("client_secret"),
+        )
         
         if refreshed_tokens:
             return refreshed_tokens['access_token']
@@ -151,30 +164,58 @@ class TokenManager:
         logger.error("Failed to refresh token")
         return None
     
-    def refresh_tokens(self, refresh_token: str) -> Optional[Dict[str, Any]]:
+    def refresh_tokens(
+        self,
+        refresh_token: str,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Refresh access token using refresh token"""
         try:
             import requests
-            
+
+            resolved_client_id = os.getenv("WHOOP_CLIENT_ID") or client_id
+            resolved_client_secret = os.getenv("WHOOP_CLIENT_SECRET") or client_secret
+
+            if not resolved_client_id or not resolved_client_secret:
+                logger.error(
+                    "WHOOP client credentials are required for token refresh. "
+                    "Run setup.py again or set WHOOP_CLIENT_ID/WHOOP_CLIENT_SECRET."
+                )
+                return None
+
             response = requests.post(
-                OAUTH_REFRESH_URL,
-                json={'refresh_token': refresh_token},
+                WHOOP_OAUTH_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": resolved_client_id,
+                    "client_secret": resolved_client_secret,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=REQUEST_TIMEOUT
             )
             
             if response.status_code == 200:
                 token_data = response.json()
-                if token_data.get('success'):
-                    # Save new tokens
-                    self.save_tokens(token_data)
-                    return token_data
-                else:
-                    logger.error(f"Token refresh failed: {token_data.get('error')}")
+                if not token_data.get("access_token"):
+                    logger.error("WHOOP token refresh returned no access_token")
                     return None
-            else:
-                logger.error(f"Token refresh failed with status {response.status_code}")
-                return None
-                
+
+                if not token_data.get("refresh_token"):
+                    token_data["refresh_token"] = refresh_token
+
+                token_data["client_id"] = resolved_client_id
+                token_data["client_secret"] = resolved_client_secret
+
+                self.save_tokens(token_data)
+                return token_data
+
+            logger.error(
+                f"Token refresh failed with status {response.status_code}: {response.text}"
+            )
+            return None
+
         except Exception as e:
             logger.error(f"Error refreshing tokens: {e}")
             return None
