@@ -10,8 +10,10 @@ import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
+from config import EXPORT_DIR
 from dashboard_analysis import DashboardAnalyzer
 from whoop_client import WhoopClient
 
@@ -19,6 +21,8 @@ from whoop_client import WhoopClient
 STATIC_ROOT = Path(__file__).resolve().parent / "web"
 WHOOP_CLIENT = WhoopClient()
 ANALYZER = DashboardAnalyzer(WHOOP_CLIENT)
+EXPORT_BASE_DIR = Path(EXPORT_DIR).expanduser().resolve()
+OVERRIDE_EXPORT_DIR: Optional[Path] = None
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
@@ -43,20 +47,44 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         print(f"[dashboard] {format % args}", file=sys.stderr)
 
     def _handle_dashboard_request(self, query_string: str) -> None:
-        """Generate the live WHOOP dashboard payload."""
+        """Generate a live payload with offline export fallback."""
         try:
             query = parse_qs(query_string)
             refresh = query.get("refresh", ["0"])[0] in {"1", "true", "yes"}
             payload = asyncio.run(ANALYZER.build_dashboard(refresh=refresh))
+            if payload.get("errorState"):
+                offline_payload = self._load_offline_payload()
+                if offline_payload:
+                    self._send_json(offline_payload)
+                    return
             self._send_json(payload)
         except Exception as exc:  # pragma: no cover - exercised via manual smoke test
+            offline_payload = self._load_offline_payload()
+            if offline_payload:
+                self._send_json(offline_payload)
+                return
             self._send_json(
                 {
                     "error": str(exc),
-                    "hint": "Check WHOOP authentication and network access, then try again.",
+                    "hint": "Check WHOOP authentication/network or provide an export via --export-dir.",
                 },
                 status=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
+
+    def _load_offline_payload(self) -> Optional[dict]:
+        """Load the dashboard payload from exported WHOOP data."""
+        try:
+            export_dir = OVERRIDE_EXPORT_DIR
+            if export_dir is None:
+                export_dir = DashboardAnalyzer.find_latest_export_dir(EXPORT_BASE_DIR)
+            if export_dir is None:
+                return None
+            exported = DashboardAnalyzer.load_from_export(export_dir)
+            analyzer = DashboardAnalyzer(data=exported, data_source=exported.get("dataSource"))
+            return asyncio.run(analyzer.build_dashboard())
+        except Exception as exc:
+            print(f"[dashboard] Offline fallback failed: {exc}", file=sys.stderr)
+            return None
 
     def _serve_static(self, request_path: str) -> None:
         """Serve dashboard HTML, CSS, and JS assets."""
@@ -102,13 +130,25 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     """Start the local dashboard server."""
+    global OVERRIDE_EXPORT_DIR
     parser = argparse.ArgumentParser(description="Run the WHOOP dashboard web app.")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
     parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
+    parser.add_argument(
+        "--export-dir",
+        default=None,
+        help="Optional specific WHOOP export directory to force offline mode fallback.",
+    )
     args = parser.parse_args()
+    if args.export_dir:
+        OVERRIDE_EXPORT_DIR = Path(args.export_dir).expanduser().resolve()
 
     server = ThreadingHTTPServer((args.host, args.port), DashboardRequestHandler)
     print(f"WHOOP dashboard available at http://{args.host}:{args.port}", file=sys.stderr)
+    if OVERRIDE_EXPORT_DIR:
+        print(f"Offline export override: {OVERRIDE_EXPORT_DIR}", file=sys.stderr)
+    else:
+        print(f"Offline export base: {EXPORT_BASE_DIR}", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

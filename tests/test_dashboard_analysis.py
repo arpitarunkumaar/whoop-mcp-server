@@ -1,11 +1,14 @@
 """
 Tests for WHOOP dashboard analysis helpers.
 """
+import json
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 import asyncio
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -181,6 +184,125 @@ class TestDashboardAnalysis(unittest.TestCase):
         self.assertEqual(payload["errorState"]["title"], "No WHOOP tokens were found for the local dashboard.")
         self.assertEqual(payload["cards"], [])
         client.get_user_profile.assert_not_called()
+
+    def test_load_latest_export_builds_offline_payload(self):
+        """Offline exports should be loaded and rendered as dashboard payloads."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "exports"
+            older = base / "whoop-export-20260301T010101Z"
+            latest = base / "whoop-export-20260302T020202Z"
+            older.mkdir(parents=True)
+            latest.mkdir(parents=True)
+
+            def write(path: Path, payload: dict) -> None:
+                path.write_text(json.dumps(payload), encoding="utf-8")
+
+            for export_dir, recovery_score in ((older, 55), (latest, 81)):
+                write(
+                    export_dir / "profile.json",
+                    {"data": {"first_name": "Arpit", "last_name": "K", "email": "arpit@example.com", "user_id": 1}},
+                )
+                write(
+                    export_dir / "body_measurements.json",
+                    {"data": {"height_meter": 1.8, "weight_kilogram": 75.0, "max_heart_rate": 190}},
+                )
+                write(
+                    export_dir / "recovery.json",
+                    {
+                        "records": [
+                            {
+                                "created_at": "2026-03-02T08:00:00Z",
+                                "score": {"recovery_score": recovery_score, "hrv_rmssd_milli": 88, "resting_heart_rate": 55},
+                            }
+                        ]
+                    },
+                )
+                write(
+                    export_dir / "sleep.json",
+                    {
+                        "records": [
+                            {
+                                "start": "2026-03-02T01:00:00Z",
+                                "score": {
+                                    "sleep_performance_percentage": 84,
+                                    "sleep_efficiency_percentage": 93,
+                                    "sleep_consistency_percentage": 72,
+                                    "respiratory_rate": 16.4,
+                                    "stage_summary": {
+                                        "total_light_sleep_time_milli": 16_200_000,
+                                        "total_slow_wave_sleep_time_milli": 4_200_000,
+                                        "total_rem_sleep_time_milli": 4_200_000,
+                                    },
+                                    "sleep_needed": {
+                                        "baseline_milli": 28_800_000,
+                                        "need_from_sleep_debt_milli": 1_800_000,
+                                        "need_from_recent_strain_milli": 0,
+                                        "need_from_recent_nap_milli": 0,
+                                    },
+                                },
+                            }
+                        ]
+                    },
+                )
+                write(
+                    export_dir / "workouts.json",
+                    {
+                        "records": [
+                            {
+                                "start": "2026-03-02T14:00:00Z",
+                                "end": "2026-03-02T14:30:00Z",
+                                "sport_name": "running",
+                                "score": {"strain": 8.1, "average_heart_rate": 128, "max_heart_rate": 162},
+                            }
+                        ]
+                    },
+                )
+                write(
+                    export_dir / "cycles.json",
+                    {"records": [{"start": "2026-03-02T00:00:00Z", "score": {"strain": 11.3, "kilojoule": 1900}}]},
+                )
+                write(export_dir / "auth_status.json", {"status": "offline_export"})
+
+            loaded = DashboardAnalyzer.load_latest_export(base)
+            analyzer = DashboardAnalyzer(data=loaded, data_source=loaded.get("dataSource"))
+            payload = asyncio.run(analyzer.build_dashboard())
+
+            self.assertEqual(payload["dataSource"]["mode"], "offline")
+            self.assertEqual(payload["metrics"]["recovery"]["average"], 81.0)
+            self.assertIn("offline", payload["dataSource"]["label"])
+
+    def test_load_from_export_tolerates_missing_collections(self):
+        """Offline loading should still work when some export files are absent."""
+        with tempfile.TemporaryDirectory() as tmp:
+            export_dir = Path(tmp) / "whoop-export-20260303T030303Z"
+            export_dir.mkdir(parents=True)
+            (export_dir / "profile.json").write_text(
+                json.dumps({"data": {"first_name": "Arpit", "user_id": 1}}),
+                encoding="utf-8",
+            )
+            # Intentionally omit body_measurements.json, sleep.json, workouts.json, cycles.json.
+            (export_dir / "recovery.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "created_at": "2026-03-03T08:00:00Z",
+                                "score": {"recovery_score": 74, "hrv_rmssd_milli": 90, "resting_heart_rate": 54},
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = DashboardAnalyzer.load_from_export(export_dir)
+            analyzer = DashboardAnalyzer(data=loaded, data_source=loaded.get("dataSource"))
+            payload = asyncio.run(analyzer.build_dashboard())
+
+            self.assertEqual(payload["dataSource"]["mode"], "offline")
+            self.assertEqual(payload["sources"]["sleep"]["count"], 0)
+            self.assertEqual(payload["sources"]["workouts"]["count"], 0)
+            self.assertEqual(payload["metrics"]["recovery"]["average"], 74.0)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from config import (
+    WHOOP_API_ROOT,
     WHOOP_API_BASE,
     REQUEST_TIMEOUT,
     MAX_REQUESTS_PER_MINUTE,
@@ -21,6 +22,7 @@ class WhoopClient:
     """WHOOP API client with caching and rate limiting"""
     
     def __init__(self):
+        self.api_root = WHOOP_API_ROOT
         self.base_url = WHOOP_API_BASE
         self.token_manager = TokenManager()
         self.cache = {}
@@ -94,7 +96,11 @@ class WhoopClient:
             return cached_data
         
         # Make API request
-        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        normalized_endpoint = endpoint.lstrip("/")
+        if normalized_endpoint.startswith(("v1/", "v2/")):
+            url = f"{self.api_root}/{normalized_endpoint}"
+        else:
+            url = f"{self.base_url}/{normalized_endpoint}"
         headers = self._get_headers()
         
         try:

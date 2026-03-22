@@ -2,10 +2,13 @@
 WHOOP dashboard analysis helpers.
 """
 import asyncio
+import json
 import math
+import re
 import statistics
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from whoop_client import WhoopClient
@@ -13,6 +16,20 @@ from whoop_client import WhoopClient
 
 MAX_PAGE_SIZE = 25
 UTC_MIN = datetime.min.replace(tzinfo=timezone.utc)
+EXPORT_DIR_PREFIX = "whoop-export-"
+EXPORT_TIMESTAMP_PATTERN = re.compile(r"^whoop-export-(\d{8}T\d{6}Z)$")
+
+SINGLE_EXPORT_FILES = {
+    "profile": "profile.json",
+    "bodyMeasurements": "body_measurements.json",
+}
+
+COLLECTION_EXPORT_FILES = {
+    "recovery": "recovery.json",
+    "sleep": "sleep.json",
+    "workouts": "workouts.json",
+    "cycles": "cycles.json",
+}
 
 
 def parse_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -163,16 +180,175 @@ def correlation_label(value: Optional[float]) -> str:
     return f"{strength} {direction}"
 
 
+def rolling_average(values: List[Optional[float]], window: int, digits: int = 2) -> List[Optional[float]]:
+    """Compute a trailing rolling average for each position."""
+    output: List[Optional[float]] = []
+    for index in range(len(values)):
+        chunk = values[max(0, index - window + 1) : index + 1]
+        output.append(mean(chunk, digits=digits))
+    return output
+
+
+def shift_date(value: str, days: int) -> Optional[str]:
+    """Shift an ISO date string by a day offset."""
+    try:
+        base = datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+    return (base + timedelta(days=days)).date().isoformat()
+
+
 class DashboardAnalyzer:
     """Builds the WHOOP dashboard payload used by the local web app."""
 
-    def __init__(self, client: WhoopClient):
+    def __init__(
+        self,
+        client: Optional[WhoopClient] = None,
+        data: Optional[Dict[str, Any]] = None,
+        data_source: Optional[Dict[str, Any]] = None,
+    ):
         self.client = client
+        self.data = data
+        self.data_source = data_source or {
+            "mode": "offline" if data is not None else "live",
+            "label": "offline" if data is not None else "live",
+        }
 
     @staticmethod
     def _timestamp() -> str:
         """Build a consistent UTC timestamp for payloads."""
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _default_live_data_source() -> Dict[str, Any]:
+        """Return metadata for live payloads."""
+        return {
+            "mode": "live",
+            "label": "live",
+            "exportDate": None,
+            "exportDir": None,
+        }
+
+    @staticmethod
+    def _export_date_from_dir_name(directory_name: str) -> Optional[str]:
+        """Extract YYYY-MM-DD from whoop-export-YYYYMMDDTHHMMSSZ."""
+        match = EXPORT_TIMESTAMP_PATTERN.match(directory_name)
+        if not match:
+            return None
+        try:
+            parsed = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ")
+        except ValueError:
+            return None
+        return parsed.date().isoformat()
+
+    @classmethod
+    def format_offline_data_source(cls, export_dir: Path) -> Dict[str, Any]:
+        """Build human-readable metadata for offline exports."""
+        export_date = cls._export_date_from_dir_name(export_dir.name)
+        label = (
+            f"offline (export from {export_date})"
+            if export_date
+            else f"offline ({export_dir.name})"
+        )
+        return {
+            "mode": "offline",
+            "label": label,
+            "exportDate": export_date,
+            "exportDir": str(export_dir),
+        }
+
+    @staticmethod
+    def list_export_dirs(export_base: Path) -> List[Path]:
+        """Return all timestamped export directories."""
+        if not export_base.exists() or not export_base.is_dir():
+            return []
+        return sorted(
+            [
+                path
+                for path in export_base.iterdir()
+                if path.is_dir() and path.name.startswith(EXPORT_DIR_PREFIX)
+            ],
+            key=lambda path: path.name,
+        )
+
+    @classmethod
+    def find_latest_export_dir(cls, export_base: Path) -> Optional[Path]:
+        """Find the newest export directory under a base path."""
+        exports = cls.list_export_dirs(export_base)
+        return exports[-1] if exports else None
+
+    @staticmethod
+    def _read_export_json(path: Path) -> Any:
+        """Read a JSON file from disk."""
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _unwrap_single_payload(payload: Any) -> Dict[str, Any]:
+        """Normalize single-resource export payloads."""
+        if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+            return payload["data"]
+        if isinstance(payload, dict):
+            return payload
+        return {}
+
+    @staticmethod
+    def _unwrap_collection_payload(payload: Any) -> List[Dict[str, Any]]:
+        """Normalize collection export payloads."""
+        if isinstance(payload, dict) and isinstance(payload.get("records"), list):
+            return payload["records"]
+        if isinstance(payload, list):
+            return payload
+        return []
+
+    @classmethod
+    def load_from_export(cls, export_dir: Path) -> Dict[str, Any]:
+        """Load profile/body/collections from an export directory."""
+        resolved = export_dir.expanduser().resolve()
+        if not resolved.exists() or not resolved.is_dir():
+            raise FileNotFoundError(f"Export directory not found: {resolved}")
+
+        profile_path = resolved / SINGLE_EXPORT_FILES["profile"]
+        body_path = resolved / SINGLE_EXPORT_FILES["bodyMeasurements"]
+        recovery_path = resolved / COLLECTION_EXPORT_FILES["recovery"]
+        sleep_path = resolved / COLLECTION_EXPORT_FILES["sleep"]
+        workouts_path = resolved / COLLECTION_EXPORT_FILES["workouts"]
+        cycles_path = resolved / COLLECTION_EXPORT_FILES["cycles"]
+
+        profile_payload = cls._read_export_json(profile_path) if profile_path.exists() else {}
+        body_payload = cls._read_export_json(body_path) if body_path.exists() else {}
+        recovery_payload = cls._read_export_json(recovery_path) if recovery_path.exists() else {"records": []}
+        sleep_payload = cls._read_export_json(sleep_path) if sleep_path.exists() else {"records": []}
+        workouts_payload = cls._read_export_json(workouts_path) if workouts_path.exists() else {"records": []}
+        cycles_payload = cls._read_export_json(cycles_path) if cycles_path.exists() else {"records": []}
+
+        auth_status_path = resolved / "auth_status.json"
+        auth_status = (
+            cls._read_export_json(auth_status_path)
+            if auth_status_path.exists()
+            else {"status": "offline_export"}
+        )
+        if not isinstance(auth_status, dict):
+            auth_status = {"status": "offline_export"}
+        auth_status.setdefault("status", "offline_export")
+
+        return {
+            "profile": cls._unwrap_single_payload(profile_payload),
+            "bodyMeasurements": cls._unwrap_single_payload(body_payload),
+            "recovery": cls._unwrap_collection_payload(recovery_payload),
+            "sleep": cls._unwrap_collection_payload(sleep_payload),
+            "workouts": cls._unwrap_collection_payload(workouts_payload),
+            "cycles": cls._unwrap_collection_payload(cycles_payload),
+            "authStatus": auth_status,
+            "dataSource": cls.format_offline_data_source(resolved),
+        }
+
+    @classmethod
+    def load_latest_export(cls, export_base: Path) -> Dict[str, Any]:
+        """Load the newest available export from the base directory."""
+        latest = cls.find_latest_export_dir(export_base.expanduser().resolve())
+        if latest is None:
+            raise FileNotFoundError(f"No exports found in {export_base}")
+        return cls.load_from_export(latest)
 
     async def _safe_fetch(self, coroutine: Any) -> Dict[str, Any]:
         """Capture endpoint failures without aborting the whole dashboard."""
@@ -180,6 +356,37 @@ class DashboardAnalyzer:
             return {"data": await coroutine, "error": None}
         except Exception as exc:
             return {"data": None, "error": str(exc)}
+
+    @staticmethod
+    def _source_summary(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Build source availability metadata from normalized records."""
+        return {
+            "bodyMeasurements": {
+                "available": bool(data.get("bodyMeasurements")),
+                "count": 1 if data.get("bodyMeasurements") else 0,
+                "message": None,
+            },
+            "recovery": {
+                "available": True,
+                "count": len(data.get("recovery") or []),
+                "message": None,
+            },
+            "sleep": {
+                "available": True,
+                "count": len(data.get("sleep") or []),
+                "message": None,
+            },
+            "workouts": {
+                "available": True,
+                "count": len(data.get("workouts") or []),
+                "message": None,
+            },
+            "cycles": {
+                "available": True,
+                "count": len(data.get("cycles") or []),
+                "message": None,
+            },
+        }
 
     async def _fetch_all_records(self, endpoint: str) -> List[Dict[str, Any]]:
         """Fetch every page from a WHOOP endpoint using cursor pagination."""
@@ -211,7 +418,7 @@ class DashboardAnalyzer:
                 records.append(record)
                 new_rows += 1
 
-            next_token = payload.get("next_token")
+            next_token = payload.get("next_token") or payload.get("nextToken")
             if not next_token or not new_rows:
                 break
 
@@ -219,6 +426,23 @@ class DashboardAnalyzer:
 
     async def build_dashboard(self, refresh: bool = False) -> Dict[str, Any]:
         """Fetch WHOOP data and compute dashboard-friendly summaries."""
+        if self.data is not None:
+            offline_auth = self.data.get("authStatus") or {"status": "offline_export"}
+            return self._build_payload(
+                self.data.get("profile") or {},
+                self.data.get("bodyMeasurements") or {},
+                offline_auth,
+                self.data.get("recovery") or [],
+                self.data.get("sleep") or [],
+                self.data.get("workouts") or [],
+                self.data.get("cycles") or [],
+                self._source_summary(self.data),
+                data_source=self.data.get("dataSource") or self.data_source,
+            )
+
+        if self.client is None:
+            raise ValueError("A WHOOP client is required for live dashboard mode.")
+
         if refresh:
             self.client.clear_cache()
 
@@ -228,6 +452,7 @@ class DashboardAnalyzer:
                 auth_status,
                 "No WHOOP tokens were found for the local dashboard.",
                 "Run `python3.11 setup.py --client-id YOUR_ID --client-secret YOUR_SECRET`, then refresh the page.",
+                data_source=self._default_live_data_source(),
             )
 
         (
@@ -287,6 +512,7 @@ class DashboardAnalyzer:
                 "The dashboard could not load WHOOP data.",
                 profile_result["error"],
                 sources=sources,
+                data_source=self._default_live_data_source(),
             )
 
         return self._build_payload(
@@ -298,6 +524,7 @@ class DashboardAnalyzer:
             workout_result["data"] or [],
             cycle_result["data"] or [],
             sources,
+            data_source=self._default_live_data_source(),
         )
 
     def _empty_payload(
@@ -306,6 +533,7 @@ class DashboardAnalyzer:
         title: str,
         message: str,
         sources: Optional[Dict[str, Dict[str, Any]]] = None,
+        data_source: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Return a frontend-safe empty payload instead of surfacing a 500."""
         return {
@@ -322,6 +550,7 @@ class DashboardAnalyzer:
                 "maxHeartRate": None,
             },
             "authStatus": auth_status,
+            "dataSource": data_source or self.data_source or self._default_live_data_source(),
             "dateRange": {"start": None, "end": None, "days": 0},
             "sources": sources
             or {
@@ -334,7 +563,13 @@ class DashboardAnalyzer:
             "cards": [],
             "insights": [],
             "highlights": [],
-            "series": {"recovery": [], "sleep": [], "workouts": [], "cycles": []},
+            "series": {
+                "recovery": [],
+                "sleep": [],
+                "workouts": [],
+                "workoutSessions": [],
+                "cycles": [],
+            },
             "recentDays": [],
             "monthly": [],
             "metrics": {
@@ -352,6 +587,54 @@ class DashboardAnalyzer:
             },
         }
 
+    def _build_insights(
+        self,
+        recent_recovery_average: Optional[float],
+        previous_recovery_average: Optional[float],
+        sleep_hours_values: List[Optional[float]],
+        sleep_need_values: List[Optional[float]],
+        sleep_gap_values: List[Optional[float]],
+        sleep_perf_corr: Optional[float],
+        latest_month: Optional[Dict[str, Any]],
+        previous_month: Optional[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Build narrative dashboard insights from aggregated metrics."""
+        insights = [
+            {
+                "title": "Recovery is trending up",
+                "body": (
+                    f"Your latest 7-day recovery average is {recent_recovery_average}, "
+                    f"up {delta(recent_recovery_average, previous_recovery_average)} points from the prior week."
+                ),
+            },
+            {
+                "title": "Sleep quantity is the main constraint",
+                "body": (
+                    f"You average {mean(sleep_hours_values)} hours of sleep against "
+                    f"{mean(sleep_need_values)} hours needed, leaving a {mean(sleep_gap_values)} hour nightly gap."
+                ),
+            },
+            {
+                "title": "Sleep quality maps to recovery",
+                "body": (
+                    f"Sleep performance and recovery move together with a {correlation_label(sleep_perf_corr)} "
+                    f"relationship (r={sleep_perf_corr})."
+                ),
+            },
+        ]
+        if latest_month and previous_month:
+            insights.append(
+                {
+                    "title": f"{latest_month['label']} is trending better",
+                    "body": (
+                        f"{latest_month['label']} shows sleep performance at {latest_month['avgSleepPerformance']}% "
+                        f"versus {previous_month['avgSleepPerformance']}% in {previous_month['label']}, "
+                        f"with sleep gap narrowing from {previous_month['avgSleepGapHours']}h to {latest_month['avgSleepGapHours']}h."
+                    ),
+                }
+            )
+        return insights
+
     def _build_payload(
         self,
         profile: Dict[str, Any],
@@ -362,6 +645,7 @@ class DashboardAnalyzer:
         workouts: List[Dict[str, Any]],
         cycles: List[Dict[str, Any]],
         sources: Dict[str, Dict[str, Any]],
+        data_source: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Transform raw WHOOP records into dashboard sections."""
         recovery.sort(key=lambda row: parse_datetime(row.get("created_at")) or UTC_MIN)
@@ -414,6 +698,9 @@ class DashboardAnalyzer:
             spo2_values.append(entry["spo2"])
             skin_temp_values.append(entry["skinTempC"])
 
+        for index, value in enumerate(rolling_average(hrv_values, window=7, digits=2)):
+            recovery_series[index]["hrvMovingAverage7d"] = value
+
         sleep_series = []
         sleep_performance_values = []
         sleep_efficiency_values = []
@@ -425,10 +712,14 @@ class DashboardAnalyzer:
         respiratory_rate_values = []
         for record in sleep:
             score = record.get("score") or {}
+            stage_summary = score.get("stage_summary") or {}
             actual_hours = sleep_actual_hours(record)
             need_hours = sleep_need_hours(record)
             debt_hours = sleep_debt_hours(record)
             gap_hours = round_value(need_hours - actual_hours) if need_hours is not None and actual_hours is not None else None
+            light_sleep_hours = round_value((stage_summary.get("total_light_sleep_time_milli", 0) or 0) / 3_600_000)
+            slow_wave_sleep_hours = round_value((stage_summary.get("total_slow_wave_sleep_time_milli", 0) or 0) / 3_600_000)
+            rem_sleep_hours = round_value((stage_summary.get("total_rem_sleep_time_milli", 0) or 0) / 3_600_000)
             entry = {
                 "date": record.get("start", "")[:10],
                 "isNap": bool(record.get("nap")),
@@ -440,6 +731,9 @@ class DashboardAnalyzer:
                 "debtHours": debt_hours,
                 "gapHours": gap_hours,
                 "respiratoryRate": round_value(score.get("respiratory_rate")),
+                "lightSleepHours": light_sleep_hours,
+                "slowWaveSleepHours": slow_wave_sleep_hours,
+                "remSleepHours": rem_sleep_hours,
             }
             sleep_series.append(entry)
             sleep_performance_values.append(entry["sleepPerformance"])
@@ -457,6 +751,14 @@ class DashboardAnalyzer:
         workout_hr_values = []
         workout_max_hr_values = []
         sports_counter: Counter[str] = Counter()
+        zone_duration_totals_milli: Dict[str, int] = {
+            "zone_one_milli": 0,
+            "zone_two_milli": 0,
+            "zone_three_milli": 0,
+            "zone_four_milli": 0,
+            "zone_five_milli": 0,
+            "zone_six_milli": 0,
+        }
         daily_workouts: Dict[str, Dict[str, Any]] = defaultdict(
             lambda: {
                 "date": None,
@@ -465,10 +767,17 @@ class DashboardAnalyzer:
                 "sessions": 0,
                 "averageHeartRate": [],
                 "labels": [],
+                "zoneOneMinutes": 0.0,
+                "zoneTwoMinutes": 0.0,
+                "zoneThreeMinutes": 0.0,
+                "zoneFourMinutes": 0.0,
+                "zoneFiveMinutes": 0.0,
+                "zoneSixMinutes": 0.0,
             }
         )
         for record in workouts:
             score = record.get("score") or {}
+            zone_durations = score.get("zone_durations") or {}
             duration_minutes = workout_duration_minutes(record)
             exercise_date = record.get("start", "")[:10]
             sports_counter[record.get("sport_name") or "unknown"] += 1
@@ -480,6 +789,14 @@ class DashboardAnalyzer:
                 "strain": round_value(score.get("strain")),
                 "averageHeartRate": score.get("average_heart_rate"),
                 "maxHeartRate": score.get("max_heart_rate"),
+                "zoneDurationsMinutes": {
+                    "zone1": round_value((zone_durations.get("zone_one_milli", 0) or 0) / 60_000, 2),
+                    "zone2": round_value((zone_durations.get("zone_two_milli", 0) or 0) / 60_000, 2),
+                    "zone3": round_value((zone_durations.get("zone_three_milli", 0) or 0) / 60_000, 2),
+                    "zone4": round_value((zone_durations.get("zone_four_milli", 0) or 0) / 60_000, 2),
+                    "zone5": round_value((zone_durations.get("zone_five_milli", 0) or 0) / 60_000, 2),
+                    "zone6": round_value((zone_durations.get("zone_six_milli", 0) or 0) / 60_000, 2),
+                },
             }
             workout_records.append(workout_entry)
 
@@ -498,6 +815,15 @@ class DashboardAnalyzer:
                 bucket["totalDurationMinutes"] += duration_minutes
             if workout_entry["averageHeartRate"] is not None:
                 bucket["averageHeartRate"].append(workout_entry["averageHeartRate"])
+            bucket["zoneOneMinutes"] += workout_entry["zoneDurationsMinutes"]["zone1"] or 0.0
+            bucket["zoneTwoMinutes"] += workout_entry["zoneDurationsMinutes"]["zone2"] or 0.0
+            bucket["zoneThreeMinutes"] += workout_entry["zoneDurationsMinutes"]["zone3"] or 0.0
+            bucket["zoneFourMinutes"] += workout_entry["zoneDurationsMinutes"]["zone4"] or 0.0
+            bucket["zoneFiveMinutes"] += workout_entry["zoneDurationsMinutes"]["zone5"] or 0.0
+            bucket["zoneSixMinutes"] += workout_entry["zoneDurationsMinutes"]["zone6"] or 0.0
+
+            for key in zone_duration_totals_milli:
+                zone_duration_totals_milli[key] += int(zone_durations.get(key, 0) or 0)
 
         workout_series = []
         for row in sorted(daily_workouts.values(), key=lambda item: item["date"] or ""):
@@ -509,6 +835,33 @@ class DashboardAnalyzer:
                     "sessions": row["sessions"],
                     "averageHeartRate": mean(row["averageHeartRate"]),
                     "label": ", ".join(row["labels"]),
+                    "zoneOneMinutes": round_value(row["zoneOneMinutes"]),
+                    "zoneTwoMinutes": round_value(row["zoneTwoMinutes"]),
+                    "zoneThreeMinutes": round_value(row["zoneThreeMinutes"]),
+                    "zoneFourMinutes": round_value(row["zoneFourMinutes"]),
+                    "zoneFiveMinutes": round_value(row["zoneFiveMinutes"]),
+                    "zoneSixMinutes": round_value(row["zoneSixMinutes"]),
+                }
+            )
+
+        heart_rate_zone_labels = [
+            ("zone_one_milli", "Zone 1"),
+            ("zone_two_milli", "Zone 2"),
+            ("zone_three_milli", "Zone 3"),
+            ("zone_four_milli", "Zone 4"),
+            ("zone_five_milli", "Zone 5"),
+            ("zone_six_milli", "Zone 6"),
+        ]
+        total_zone_minutes = sum(zone_duration_totals_milli.values()) / 60_000
+        heart_rate_zones = []
+        for key, label in heart_rate_zone_labels:
+            minutes = round((zone_duration_totals_milli[key] or 0) / 60_000, 2)
+            percentage = round((minutes / total_zone_minutes) * 100, 2) if total_zone_minutes else 0.0
+            heart_rate_zones.append(
+                {
+                    "zone": label,
+                    "minutes": minutes,
+                    "percentage": percentage,
                 }
             )
 
@@ -757,40 +1110,16 @@ class DashboardAnalyzer:
             },
         ]
 
-        insights = [
-            {
-                "title": "Recovery is trending up",
-                "body": (
-                    f"Your latest 7-day recovery average is {recent_recovery_average}, "
-                    f"up {delta(recent_recovery_average, previous_recovery_average)} points from the prior week."
-                ),
-            },
-            {
-                "title": "Sleep quantity is the main constraint",
-                "body": (
-                    f"You average {mean(sleep_hours_values)} hours of sleep against "
-                    f"{mean(sleep_need_values)} hours needed, leaving a {mean(sleep_gap_values)} hour nightly gap."
-                ),
-            },
-            {
-                "title": "Sleep quality maps to recovery",
-                "body": (
-                    f"Sleep performance and recovery move together with a {correlation_label(sleep_perf_corr)} "
-                    f"relationship (r={sleep_perf_corr})."
-                ),
-            },
-        ]
-        if latest_month and previous_month:
-            insights.append(
-                {
-                    "title": f"{latest_month['label']} is trending better",
-                    "body": (
-                        f"{latest_month['label']} shows sleep performance at {latest_month['avgSleepPerformance']}% "
-                        f"versus {previous_month['avgSleepPerformance']}% in {previous_month['label']}, "
-                        f"with sleep gap narrowing from {previous_month['avgSleepGapHours']}h to {latest_month['avgSleepGapHours']}h."
-                    ),
-                }
-            )
+        insights = self._build_insights(
+            recent_recovery_average,
+            previous_recovery_average,
+            sleep_hours_values,
+            sleep_need_values,
+            sleep_gap_values,
+            sleep_perf_corr,
+            latest_month,
+            previous_month,
+        )
 
         highlights = [
             {
@@ -917,6 +1246,7 @@ class DashboardAnalyzer:
                 "maxHeartRate": body_measurements.get("max_heart_rate"),
             },
             "authStatus": auth_status,
+            "dataSource": data_source or self.data_source or self._default_live_data_source(),
             "dateRange": date_range,
             "sources": sources,
             "errorState": None,
@@ -927,6 +1257,7 @@ class DashboardAnalyzer:
                 "recovery": recovery_series,
                 "sleep": sleep_series,
                 "workouts": workout_series,
+                "workoutSessions": workout_records,
                 "cycles": cycle_series,
             },
             "recentDays": recent_days,
@@ -950,6 +1281,7 @@ class DashboardAnalyzer:
                     "averageRestingHeartRate": mean(rhr_values),
                     "averageSpo2": mean(spo2_values),
                     "averageSkinTempC": mean(skin_temp_values),
+                    "averageHrv7d": mean(last_n(hrv_values, 7)),
                 },
                 "sleep": {
                     "averagePerformance": mean(sleep_performance_values),
@@ -972,6 +1304,7 @@ class DashboardAnalyzer:
                     "averageHeartRate": mean(workout_hr_values),
                     "averageMaxHeartRate": mean(workout_max_hr_values),
                     "sports": sports_counter.most_common(),
+                    "heartRateZones": heart_rate_zones,
                 },
                 "cycles": {
                     "count": len(cycles),

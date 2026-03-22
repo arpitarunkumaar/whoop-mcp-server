@@ -38,6 +38,10 @@ class TestWhoopMcpServerSurface(unittest.TestCase):
             "get_whoop_cycles",
             "get_whoop_dashboard_snapshot",
             "get_whoop_full_history",
+            "analyze_whoop_trends",
+            "compare_whoop_periods",
+            "get_whoop_correlations",
+            "get_whoop_insights",
         }
 
         self.assertTrue(expected.issubset(set(tools)))
@@ -67,3 +71,14 @@ class TestWhoopMcpServerSurface(unittest.TestCase):
 
         self.assertEqual(tools["get_whoop_dashboard_snapshot"], ["refresh"])
         self.assertEqual(tools["get_whoop_full_history"], ["refresh"])
+
+    def test_analytics_tools_surface_expected_params(self):
+        tools = self._tool_defs()
+
+        self.assertEqual(tools["analyze_whoop_trends"], ["metric", "days"])
+        self.assertEqual(
+            tools["compare_whoop_periods"],
+            ["start_date_1", "end_date_1", "start_date_2", "end_date_2"],
+        )
+        self.assertEqual(tools["get_whoop_correlations"], ["days"])
+        self.assertEqual(tools["get_whoop_insights"], ["days"])
