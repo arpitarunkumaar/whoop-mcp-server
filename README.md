@@ -8,6 +8,8 @@ Connect WHOOP data to Claude Desktop through MCP. This server authenticates with
 - Return workouts, recovery, sleep, and cycles with date filters and pagination.
 - Return an analyzed dashboard snapshot for quick trend views.
 - Return full raw history used by the dashboard.
+- Return precomp analytics for trends, period comparisons, correlations + narrative insights.
+- Export flattened CSV for spreadsheet & pandas workflows.
 - Keep tokens encrypted locally and refresh them automatically.
 
 ## MCP Tools
@@ -21,6 +23,10 @@ Connect WHOOP data to Claude Desktop through MCP. This server authenticates with
 - `get_whoop_cycles(limit, start_date, end_date, next_token)`: cycle records.
 - `get_whoop_dashboard_snapshot(refresh)`: aggregated dashboard payload.
 - `get_whoop_full_history(refresh)`: raw history payload.
+- `analyze_whoop_trends(metric, days)`: trend stats for `recovery|sleep|hrv|strain|rhr`.
+- `compare_whoop_periods(start_date_1, end_date_1, start_date_2, end_date_2)`: side-by-side period comparison.
+- `get_whoop_correlations(days)`: pairwise metric correlations (sleep/recovery/strain/HRV relationships).
+- `get_whoop_insights(days)`: dashboard-style narrative insights for the selected trailing window.
 
 Dates use `YYYY-MM-DD`.
 
@@ -85,6 +91,29 @@ Ask Claude:
 
 - Run `python3.11 src/whoop_dashboard_server.py` to start the local web dashboard.
 - Open `http://localhost:8765` in your browser to view recovery, sleep, and workout trends.
+
+## CSV Export
+
+Generate JSON + CSV in one run:
+
+```bash
+python3.11 scripts/export_whoop_data.py --csv
+```
+
+Generate only JSON:
+
+```bash
+python3.11 scripts/export_whoop_data.py
+```
+
+CSV files are written into the selected export directory (for example `storage/exports/whoop-export-YYYYMMDDTHHMMSSZ/`):
+
+- `recovery.csv`
+- `sleep.csv`
+- `workouts.csv`
+- `cycles.csv`
+- `daily_summary.csv`
+- `csv_manifest.json` (row counts + metadata)
 
 ## Essential Notes
 
