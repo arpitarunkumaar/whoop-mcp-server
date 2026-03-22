@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+import csv
 import json
 import re
 import sys
@@ -71,6 +72,386 @@ def parse_timestamp(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def date_only(value: Optional[str]) -> Optional[str]:
+    """Extract YYYY-MM-DD from an ISO timestamp."""
+    parsed = parse_timestamp(value)
+    if not parsed:
+        return None
+    return parsed.date().isoformat()
+
+
+def hours_from_milli(value: Any) -> Optional[float]:
+    """Convert milliseconds to hours."""
+    if value in (None, ""):
+        return None
+    return round(float(value) / 3_600_000, 2)
+
+
+def minutes_from_milli(value: Any) -> Optional[float]:
+    """Convert milliseconds to minutes."""
+    if value in (None, ""):
+        return None
+    return round(float(value) / 60_000, 2)
+
+
+def safe_round(value: Any, digits: int = 2) -> Optional[float]:
+    """Round numeric values while tolerating nulls."""
+    if value in (None, ""):
+        return None
+    return round(float(value), digits)
+
+
+def duration_minutes(start: Optional[str], end: Optional[str]) -> Optional[float]:
+    """Compute duration in minutes from two timestamps."""
+    start_ts = parse_timestamp(start)
+    end_ts = parse_timestamp(end)
+    if not start_ts or not end_ts:
+        return None
+    return round((end_ts - start_ts).total_seconds() / 60, 2)
+
+
+def read_collection_records(path: Path) -> List[Dict[str, Any]]:
+    """Read a collection payload and normalize records."""
+    payload = read_json(path) or {}
+    if isinstance(payload, dict) and isinstance(payload.get("records"), list):
+        return payload["records"]
+    if isinstance(payload, list):
+        return payload
+    return []
+
+
+def write_csv(path: Path, rows: List[Dict[str, Any]], fieldnames: List[str]) -> None:
+    """Write rows to CSV with stable headers."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: row.get(key) for key in fieldnames})
+
+
+def flatten_recovery_rows(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flatten recovery records for CSV export."""
+    rows: List[Dict[str, Any]] = []
+    for record in records:
+        score = record.get("score") or {}
+        rows.append(
+            {
+                "date": date_only(record.get("created_at")),
+                "created_at": record.get("created_at"),
+                "cycle_id": record.get("cycle_id"),
+                "sleep_id": record.get("sleep_id"),
+                "recovery_score": score.get("recovery_score"),
+                "hrv_rmssd_milli": score.get("hrv_rmssd_milli"),
+                "resting_heart_rate": score.get("resting_heart_rate"),
+                "spo2_percentage": score.get("spo2_percentage"),
+                "skin_temp_celsius": score.get("skin_temp_celsius"),
+            }
+        )
+    return sorted(rows, key=lambda row: row.get("date") or "")
+
+
+def flatten_sleep_rows(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flatten sleep records for CSV export."""
+    rows: List[Dict[str, Any]] = []
+    for record in records:
+        score = record.get("score") or {}
+        stage = score.get("stage_summary") or {}
+        sleep_needed = score.get("sleep_needed") or {}
+        actual_milli = (
+            (stage.get("total_light_sleep_time_milli", 0) or 0)
+            + (stage.get("total_slow_wave_sleep_time_milli", 0) or 0)
+            + (stage.get("total_rem_sleep_time_milli", 0) or 0)
+        )
+        need_milli = (
+            (sleep_needed.get("baseline_milli", 0) or 0)
+            + (sleep_needed.get("need_from_sleep_debt_milli", 0) or 0)
+            + (sleep_needed.get("need_from_recent_strain_milli", 0) or 0)
+            + (sleep_needed.get("need_from_recent_nap_milli", 0) or 0)
+        )
+        actual_hours = hours_from_milli(actual_milli)
+        need_hours = hours_from_milli(need_milli)
+        rows.append(
+            {
+                "date": date_only(record.get("start")),
+                "start": record.get("start"),
+                "end": record.get("end"),
+                "is_nap": bool(record.get("nap")),
+                "sleep_performance_percentage": score.get("sleep_performance_percentage"),
+                "sleep_efficiency_percentage": score.get("sleep_efficiency_percentage"),
+                "sleep_consistency_percentage": score.get("sleep_consistency_percentage"),
+                "respiratory_rate": score.get("respiratory_rate"),
+                "stage_light_hours": hours_from_milli(stage.get("total_light_sleep_time_milli")),
+                "stage_sws_hours": hours_from_milli(stage.get("total_slow_wave_sleep_time_milli")),
+                "stage_rem_hours": hours_from_milli(stage.get("total_rem_sleep_time_milli")),
+                "sleep_actual_hours": actual_hours,
+                "sleep_need_hours": need_hours,
+                "sleep_debt_hours": hours_from_milli(sleep_needed.get("need_from_sleep_debt_milli")) or 0.0,
+                "sleep_gap_hours": safe_round(need_hours - actual_hours)
+                if need_hours is not None and actual_hours is not None
+                else None,
+            }
+        )
+    return sorted(rows, key=lambda row: row.get("date") or "")
+
+
+def flatten_workout_rows(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flatten workout records for CSV export."""
+    rows: List[Dict[str, Any]] = []
+    for record in records:
+        score = record.get("score") or {}
+        zones = score.get("zone_durations") or {}
+        rows.append(
+            {
+                "date": date_only(record.get("start")),
+                "start": record.get("start"),
+                "end": record.get("end"),
+                "sport_name": record.get("sport_name"),
+                "strain": score.get("strain"),
+                "average_heart_rate": score.get("average_heart_rate"),
+                "max_heart_rate": score.get("max_heart_rate"),
+                "kilojoule": score.get("kilojoule"),
+                "workout_duration_minutes": duration_minutes(record.get("start"), record.get("end")),
+                "zone_one_minutes": minutes_from_milli(zones.get("zone_one_milli")) or 0.0,
+                "zone_two_minutes": minutes_from_milli(zones.get("zone_two_milli")) or 0.0,
+                "zone_three_minutes": minutes_from_milli(zones.get("zone_three_milli")) or 0.0,
+                "zone_four_minutes": minutes_from_milli(zones.get("zone_four_milli")) or 0.0,
+                "zone_five_minutes": minutes_from_milli(zones.get("zone_five_milli")) or 0.0,
+                "zone_six_minutes": minutes_from_milli(zones.get("zone_six_milli")) or 0.0,
+            }
+        )
+    return sorted(rows, key=lambda row: row.get("date") or "")
+
+
+def flatten_cycle_rows(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flatten cycle records for CSV export."""
+    rows: List[Dict[str, Any]] = []
+    for record in records:
+        score = record.get("score") or {}
+        rows.append(
+            {
+                "date": date_only(record.get("start")),
+                "start": record.get("start"),
+                "end": record.get("end"),
+                "strain": score.get("strain"),
+                "kilojoule": score.get("kilojoule"),
+                "average_heart_rate": score.get("average_heart_rate"),
+                "max_heart_rate": score.get("max_heart_rate"),
+            }
+        )
+    return sorted(rows, key=lambda row: row.get("date") or "")
+
+
+def build_daily_summary_rows(
+    recovery_rows: List[Dict[str, Any]],
+    sleep_rows: List[Dict[str, Any]],
+    workout_rows: List[Dict[str, Any]],
+    cycle_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Join recovery/sleep/workout/cycle data by date for ad-hoc analysis."""
+    summary_by_date: Dict[str, Dict[str, Any]] = {}
+
+    def ensure_day(day: str) -> Dict[str, Any]:
+        if day not in summary_by_date:
+            summary_by_date[day] = {
+                "date": day,
+                "recovery_score": None,
+                "hrv": None,
+                "rhr": None,
+                "spo2": None,
+                "skin_temp": None,
+                "sleep_hours": None,
+                "sleep_need": None,
+                "sleep_debt": None,
+                "sleep_performance": None,
+                "sleep_efficiency": None,
+                "sleep_consistency": None,
+                "respiratory_rate": None,
+                "workout_count": 0,
+                "workout_strain": 0.0,
+                "workout_duration": 0.0,
+                "cycle_strain": None,
+                "cycle_kj": None,
+            }
+        return summary_by_date[day]
+
+    for row in recovery_rows:
+        day = row.get("date")
+        if not day:
+            continue
+        target = ensure_day(day)
+        target["recovery_score"] = row.get("recovery_score")
+        target["hrv"] = row.get("hrv_rmssd_milli")
+        target["rhr"] = row.get("resting_heart_rate")
+        target["spo2"] = row.get("spo2_percentage")
+        target["skin_temp"] = row.get("skin_temp_celsius")
+
+    for row in sleep_rows:
+        day = row.get("date")
+        if not day:
+            continue
+        target = ensure_day(day)
+        target["sleep_hours"] = row.get("sleep_actual_hours")
+        target["sleep_need"] = row.get("sleep_need_hours")
+        target["sleep_debt"] = row.get("sleep_debt_hours")
+        target["sleep_performance"] = row.get("sleep_performance_percentage")
+        target["sleep_efficiency"] = row.get("sleep_efficiency_percentage")
+        target["sleep_consistency"] = row.get("sleep_consistency_percentage")
+        target["respiratory_rate"] = row.get("respiratory_rate")
+
+    for row in workout_rows:
+        day = row.get("date")
+        if not day:
+            continue
+        target = ensure_day(day)
+        target["workout_count"] += 1
+        if row.get("strain") is not None:
+            target["workout_strain"] = round(target["workout_strain"] + float(row["strain"]), 2)
+        if row.get("workout_duration_minutes") is not None:
+            target["workout_duration"] = round(
+                target["workout_duration"] + float(row["workout_duration_minutes"]),
+                2,
+            )
+
+    for row in cycle_rows:
+        day = row.get("date")
+        if not day:
+            continue
+        target = ensure_day(day)
+        target["cycle_strain"] = row.get("strain")
+        target["cycle_kj"] = row.get("kilojoule")
+
+    return [summary_by_date[day] for day in sorted(summary_by_date.keys())]
+
+
+def generate_csv_exports(export_dir: Path) -> Dict[str, Any]:
+    """Generate flattened CSV exports from the latest JSON snapshot."""
+    recovery_records = read_collection_records(export_dir / "recovery.json")
+    sleep_records = read_collection_records(export_dir / "sleep.json")
+    workout_records = read_collection_records(export_dir / "workouts.json")
+    cycle_records = read_collection_records(export_dir / "cycles.json")
+
+    recovery_rows = flatten_recovery_rows(recovery_records)
+    sleep_rows = flatten_sleep_rows(sleep_records)
+    workout_rows = flatten_workout_rows(workout_records)
+    cycle_rows = flatten_cycle_rows(cycle_records)
+    daily_summary_rows = build_daily_summary_rows(
+        recovery_rows,
+        sleep_rows,
+        workout_rows,
+        cycle_rows,
+    )
+
+    write_csv(
+        export_dir / "recovery.csv",
+        recovery_rows,
+        [
+            "date",
+            "created_at",
+            "cycle_id",
+            "sleep_id",
+            "recovery_score",
+            "hrv_rmssd_milli",
+            "resting_heart_rate",
+            "spo2_percentage",
+            "skin_temp_celsius",
+        ],
+    )
+    write_csv(
+        export_dir / "sleep.csv",
+        sleep_rows,
+        [
+            "date",
+            "start",
+            "end",
+            "is_nap",
+            "sleep_performance_percentage",
+            "sleep_efficiency_percentage",
+            "sleep_consistency_percentage",
+            "respiratory_rate",
+            "stage_light_hours",
+            "stage_sws_hours",
+            "stage_rem_hours",
+            "sleep_actual_hours",
+            "sleep_need_hours",
+            "sleep_debt_hours",
+            "sleep_gap_hours",
+        ],
+    )
+    write_csv(
+        export_dir / "workouts.csv",
+        workout_rows,
+        [
+            "date",
+            "start",
+            "end",
+            "sport_name",
+            "strain",
+            "average_heart_rate",
+            "max_heart_rate",
+            "kilojoule",
+            "workout_duration_minutes",
+            "zone_one_minutes",
+            "zone_two_minutes",
+            "zone_three_minutes",
+            "zone_four_minutes",
+            "zone_five_minutes",
+            "zone_six_minutes",
+        ],
+    )
+    write_csv(
+        export_dir / "cycles.csv",
+        cycle_rows,
+        [
+            "date",
+            "start",
+            "end",
+            "strain",
+            "kilojoule",
+            "average_heart_rate",
+            "max_heart_rate",
+        ],
+    )
+    write_csv(
+        export_dir / "daily_summary.csv",
+        daily_summary_rows,
+        [
+            "date",
+            "recovery_score",
+            "hrv",
+            "rhr",
+            "spo2",
+            "skin_temp",
+            "sleep_hours",
+            "sleep_need",
+            "sleep_debt",
+            "sleep_performance",
+            "sleep_efficiency",
+            "sleep_consistency",
+            "respiratory_rate",
+            "workout_count",
+            "workout_strain",
+            "workout_duration",
+            "cycle_strain",
+            "cycle_kj",
+        ],
+    )
+
+    summary = {
+        "generated_at": utc_timestamp(),
+        "export_dir": str(export_dir),
+        "files": {
+            "recovery.csv": len(recovery_rows),
+            "sleep.csv": len(sleep_rows),
+            "workouts.csv": len(workout_rows),
+            "cycles.csv": len(cycle_rows),
+            "daily_summary.csv": len(daily_summary_rows),
+        },
+    }
+    write_json(export_dir / "csv_manifest.json", summary)
+    return summary
 
 
 def record_key(record: Dict[str, Any], index: int) -> str:
@@ -674,7 +1055,7 @@ async def export_all(output_base: Path, page_size: int, fresh: bool) -> Path:
                 set(unique_values(fetched_collection_records.get("sleep", []), "v1_id"))
                 | set(unique_values(fetched_collection_records.get("workouts", []), "v1_id"))
             ),
-            lambda identifier: f"/activity-mapping/{identifier}",
+            lambda identifier: f"/v1/activity-mapping/{identifier}",
             "activity_v1_id",
         ),
     ]
@@ -740,6 +1121,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Force a brand-new export directory and full pull instead of incrementally updating the latest export.",
     )
+    parser.add_argument(
+        "--csv",
+        action="store_true",
+        help="Generate flattened CSV exports after JSON sync completes.",
+    )
     return parser.parse_args()
 
 
@@ -753,6 +1139,17 @@ def main() -> int:
     except Exception as exc:
         print(f"Export failed: {exc}", file=sys.stderr)
         return 1
+
+    if args.csv:
+        try:
+            csv_summary = generate_csv_exports(export_dir)
+            print(
+                f"CSV export complete: {', '.join(csv_summary['files'].keys())}",
+                file=sys.stderr,
+            )
+        except Exception as exc:
+            print(f"CSV generation failed: {exc}", file=sys.stderr)
+            return 1
 
     print(str(export_dir))
     return 0
