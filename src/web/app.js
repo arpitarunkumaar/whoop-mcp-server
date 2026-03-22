@@ -1,6 +1,11 @@
 const state = {
   loading: false,
   data: null,
+  filteredData: null,
+  dateRange: {
+    start: null,
+    end: null,
+  },
 };
 
 const elements = {
@@ -10,6 +15,9 @@ const elements = {
   generatedAt: document.getElementById("generated-at"),
   heroMeta: document.getElementById("hero-meta"),
   refreshButton: document.getElementById("refresh-button"),
+  dataSourceBadge: document.getElementById("data-source-badge"),
+  startDateInput: document.getElementById("start-date-input"),
+  endDateInput: document.getElementById("end-date-input"),
   cardGrid: document.getElementById("card-grid"),
   bodyNote: document.getElementById("body-note"),
   bodyMetrics: document.getElementById("body-metrics"),
@@ -17,12 +25,22 @@ const elements = {
   correlationList: document.getElementById("correlation-list"),
   recoveryChart: document.getElementById("recovery-chart"),
   recoveryNote: document.getElementById("recovery-note"),
+  hrvChart: document.getElementById("hrv-chart"),
+  hrvNote: document.getElementById("hrv-note"),
   sleepChart: document.getElementById("sleep-chart"),
   sleepNote: document.getElementById("sleep-note"),
+  sleepStagesChart: document.getElementById("sleep-stages-chart"),
+  sleepStagesNote: document.getElementById("sleep-stages-note"),
   workoutChart: document.getElementById("workout-chart"),
   workoutNote: document.getElementById("workout-note"),
+  hrZoneChart: document.getElementById("hr-zone-chart"),
+  hrZoneNote: document.getElementById("hr-zone-note"),
   cycleChart: document.getElementById("cycle-chart"),
   cycleNote: document.getElementById("cycle-note"),
+  sportDonutChart: document.getElementById("sport-donut-chart"),
+  sportDonutNote: document.getElementById("sport-donut-note"),
+  recoveryHeatmap: document.getElementById("recovery-heatmap"),
+  recoveryHeatmapNote: document.getElementById("recovery-heatmap-note"),
   highlightGrid: document.getElementById("highlight-grid"),
   monthGrid: document.getElementById("month-grid"),
   recentTableBody: document.getElementById("recent-table-body"),
@@ -46,7 +64,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
-function formatNumber(value, fallback = "—") {
+function formatNumber(value, fallback = "-") {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return fallback;
   }
@@ -55,7 +73,7 @@ function formatNumber(value, fallback = "—") {
 
 function formatSigned(value, suffix = "", digits = 1) {
   if (value === null || value === undefined || Number.isNaN(value)) {
-    return "—";
+    return "-";
   }
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(digits)}${suffix}`;
@@ -63,14 +81,14 @@ function formatSigned(value, suffix = "", digits = 1) {
 
 function formatDate(value) {
   if (!value) {
-    return "—";
+    return "-";
   }
   return dateFormatter.format(new Date(`${value}T00:00:00`));
 }
 
 function formatDateTime(value) {
   if (!value) {
-    return "—";
+    return "-";
   }
   return dateTimeFormatter.format(new Date(value));
 }
@@ -81,6 +99,18 @@ function formatJson(value) {
 
 function cloneEmptyState() {
   return document.getElementById("empty-state-template").content.cloneNode(true);
+}
+
+function isNumber(value) {
+  return typeof value === "number" && !Number.isNaN(value);
+}
+
+function average(values) {
+  const clean = values.filter(isNumber);
+  if (!clean.length) {
+    return null;
+  }
+  return clean.reduce((sum, value) => sum + value, 0) / clean.length;
 }
 
 function setLoading(isLoading) {
@@ -99,6 +129,7 @@ async function loadDashboard(refresh = false) {
       throw new Error(payload.error || "Failed to load dashboard");
     }
     state.data = payload;
+    initializeDateRange(payload);
     renderDashboard(payload);
   } catch (error) {
     renderError(error);
@@ -107,19 +138,105 @@ async function loadDashboard(refresh = false) {
   }
 }
 
+function initializeDateRange(data) {
+  const start = data?.dateRange?.start || null;
+  const end = data?.dateRange?.end || null;
+  state.dateRange = { start, end };
+  elements.startDateInput.value = start || "";
+  elements.endDateInput.value = end || "";
+  elements.startDateInput.min = start || "";
+  elements.startDateInput.max = end || "";
+  elements.endDateInput.min = start || "";
+  elements.endDateInput.max = end || "";
+}
+
+function filterRowsByRange(rows, startDate, endDate) {
+  return (rows || []).filter((row) => {
+    const date = row?.date;
+    if (!date) {
+      return false;
+    }
+    if (startDate && date < startDate) {
+      return false;
+    }
+    if (endDate && date > endDate) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function buildFilteredData(data) {
+  const startDate = state.dateRange.start;
+  const endDate = state.dateRange.end;
+  const series = data?.series || {};
+  const filteredSeries = {
+    recovery: filterRowsByRange(series.recovery || [], startDate, endDate),
+    sleep: filterRowsByRange(series.sleep || [], startDate, endDate),
+    workouts: filterRowsByRange(series.workouts || [], startDate, endDate),
+    workoutSessions: filterRowsByRange(series.workoutSessions || [], startDate, endDate),
+    cycles: filterRowsByRange(series.cycles || [], startDate, endDate),
+  };
+
+  const filteredMonths = (data?.monthly || []).filter((month) => {
+    const monthKey = month?.month;
+    if (!monthKey) {
+      return false;
+    }
+    const monthStart = `${monthKey}-01`;
+    if (startDate && monthStart < `${startDate.slice(0, 7)}-01`) {
+      return false;
+    }
+    if (endDate && monthStart > `${endDate.slice(0, 7)}-01`) {
+      return false;
+    }
+    return true;
+  });
+
+  return {
+    ...data,
+    series: filteredSeries,
+    recentDays: filterRowsByRange(data?.recentDays || [], startDate, endDate),
+    monthly: filteredMonths,
+  };
+}
+
+function onDateRangeChange() {
+  state.dateRange.start = elements.startDateInput.value || null;
+  state.dateRange.end = elements.endDateInput.value || null;
+
+  if (state.dateRange.start && state.dateRange.end && state.dateRange.start > state.dateRange.end) {
+    state.dateRange.end = state.dateRange.start;
+    elements.endDateInput.value = state.dateRange.end;
+  }
+
+  if (state.data) {
+    renderDashboard(state.data);
+  }
+}
+
 function renderError(error) {
   const message = error instanceof Error ? error.message : String(error);
   elements.heroTitle.textContent = "Could not load WHOOP data";
   elements.heroSubtitle.textContent = message;
+  elements.generatedAt.textContent = "Status: unavailable";
+  elements.dataSourceBadge.textContent = "Data source: unavailable";
+  elements.dataSourceBadge.classList.remove("offline");
+
   [
     elements.cardGrid,
     elements.bodyMetrics,
     elements.storyList,
     elements.correlationList,
     elements.recoveryChart,
+    elements.hrvChart,
     elements.sleepChart,
+    elements.sleepStagesChart,
     elements.workoutChart,
+    elements.hrZoneChart,
     elements.cycleChart,
+    elements.sportDonutChart,
+    elements.recoveryHeatmap,
     elements.highlightGrid,
     elements.monthGrid,
     elements.sourceGrid,
@@ -128,24 +245,41 @@ function renderError(error) {
     node.innerHTML = "";
     node.appendChild(cloneEmptyState());
   });
+
   elements.bodyNote.textContent = "";
+  elements.recoveryNote.textContent = "";
+  elements.hrvNote.textContent = "";
+  elements.sleepNote.textContent = "";
+  elements.sleepStagesNote.textContent = "";
+  elements.workoutNote.textContent = "";
+  elements.hrZoneNote.textContent = "";
   elements.cycleNote.textContent = "";
+  elements.sportDonutNote.textContent = "";
+  elements.recoveryHeatmapNote.textContent = "";
   elements.recentTableBody.innerHTML = '<tr><td colspan="13">No recent data available.</td></tr>';
 }
 
 function renderDashboard(data) {
+  const filtered = buildFilteredData(data);
+  state.filteredData = filtered;
+
   renderHero(data);
   renderCards(data.cards || []);
   renderBody(data.bodyMeasurements || {}, data.metrics?.body || {});
   renderStories(data.insights || []);
   renderCorrelations(data.metrics?.correlations || []);
-  renderRecovery(data.series?.recovery || [], data.metrics?.recovery || {});
-  renderSleep(data.series?.sleep || [], data.metrics?.sleep || {});
-  renderWorkouts(data.series?.workouts || [], data.metrics?.workouts || {});
-  renderCycles(data.series?.cycles || [], data.metrics?.cycles || {});
+  renderRecovery(filtered.series?.recovery || []);
+  renderHrv(filtered.series?.recovery || []);
+  renderSleep(filtered.series?.sleep || []);
+  renderSleepStages(filtered.series?.sleep || []);
+  renderWorkouts(filtered.series?.workouts || []);
+  renderHeartRateZones(filtered.series?.workoutSessions || []);
+  renderCycles(filtered.series?.cycles || []);
+  renderSportDonut(filtered.series?.workoutSessions || []);
+  renderRecoveryHeatmap(filtered.series?.recovery || []);
   renderHighlights(data.highlights || []);
-  renderMonths(data.monthly || []);
-  renderRecentTable(data.recentDays || []);
+  renderMonths(filtered.monthly || []);
+  renderRecentTable(filtered.recentDays || []);
   renderSources(data.sources || {});
   renderRawSnapshots(data.rawSnapshots || {});
 }
@@ -160,12 +294,16 @@ function renderHero(data) {
   } else {
     const firstName = profile.firstName || "WHOOP";
     elements.heroTitle.textContent = `${firstName}'s health picture`;
-    elements.heroSubtitle.textContent = `A live read on body, recovery, sleep, training, and cycle physiology across ${data.dateRange?.days || 0} days of collected history.`;
+    elements.heroSubtitle.textContent = `Body, recovery, sleep, training, and cycle physiology across ${data.dateRange?.days || 0} days.`;
     elements.generatedAt.textContent = `Updated ${formatDateTime(data.generatedAt)}`;
   }
 
+  const sourceLabel = data?.dataSource?.label || "live";
+  elements.dataSourceBadge.textContent = `Data source: ${sourceLabel}`;
+  elements.dataSourceBadge.classList.toggle("offline", (data?.dataSource?.mode || "live") !== "live");
+
   const meta = [
-    { label: "Date Range", value: `${formatDate(data.dateRange?.start)} to ${formatDate(data.dateRange?.end)}` },
+    { label: "Date Range", value: `${formatDate(state.dateRange.start || data.dateRange?.start)} to ${formatDate(state.dateRange.end || data.dateRange?.end)}` },
     { label: "Weight", value: `${formatNumber(data.bodyMeasurements?.weightKilogram)} kg` },
     { label: "Recovery Days", value: formatNumber(data.sources?.recovery?.count || 0) },
     { label: "Sleep Records", value: formatNumber(data.sources?.sleep?.count || 0) },
@@ -279,9 +417,9 @@ function renderCorrelations(correlations) {
     .join("");
 }
 
-function renderRecovery(series, metrics) {
+function renderRecovery(series) {
   const data = series.slice(-21);
-  elements.recoveryNote.textContent = `Avg ${formatNumber(metrics.average)} | HRV ${formatNumber(metrics.averageHrv)} | RHR ${formatNumber(metrics.averageRestingHeartRate)} | SpO2 ${formatNumber(metrics.averageSpo2)} | Skin ${formatNumber(metrics.averageSkinTempC)} C`;
+  elements.recoveryNote.textContent = `Avg ${formatNumber(average(series.map((row) => row.recoveryScore)))} | HRV ${formatNumber(average(series.map((row) => row.hrv)))} | RHR ${formatNumber(average(series.map((row) => row.restingHeartRate)))}`;
   if (!data.length) {
     elements.recoveryChart.innerHTML = "";
     elements.recoveryChart.appendChild(cloneEmptyState());
@@ -298,9 +436,27 @@ function renderRecovery(series, metrics) {
   });
 }
 
-function renderSleep(series, metrics) {
+function renderHrv(series) {
+  const data = series.filter((row) => isNumber(row.hrv)).slice(-30);
+  elements.hrvNote.textContent = `Latest ${formatNumber(data.at(-1)?.hrv)} ms | 7d avg ${formatNumber(average(data.slice(-7).map((row) => row.hrv)))}`;
+  if (!data.length) {
+    elements.hrvChart.innerHTML = "";
+    elements.hrvChart.appendChild(cloneEmptyState());
+    return;
+  }
+  elements.hrvChart.innerHTML = dualLineChartSvg(data, {
+    primaryKey: "hrv",
+    secondaryKey: "hrvMovingAverage7d",
+    labelKey: "date",
+    primaryColor: "#2d5f8a",
+    secondaryColor: "#6ba3d6",
+    ySuffix: "",
+  });
+}
+
+function renderSleep(series) {
   const data = series.slice(-14);
-  elements.sleepNote.textContent = `Avg ${formatNumber(metrics.averageHours)}h asleep | ${formatNumber(metrics.averageNeedHours)}h needed | ${formatNumber(metrics.averageGapHours)}h gap`;
+  elements.sleepNote.textContent = `Avg ${formatNumber(average(series.map((row) => row.actualHours)))}h asleep | ${formatNumber(average(series.map((row) => row.needHours)))}h needed`;
   if (!data.length) {
     elements.sleepChart.innerHTML = "";
     elements.sleepChart.appendChild(cloneEmptyState());
@@ -316,13 +472,29 @@ function renderSleep(series, metrics) {
   });
 }
 
-function renderWorkouts(series, metrics) {
+function renderSleepStages(series) {
+  const data = series.filter((row) => !row.isNap).slice(-14);
+  elements.sleepStagesNote.textContent = `Light ${formatNumber(average(data.map((row) => row.lightSleepHours)))}h | SWS ${formatNumber(average(data.map((row) => row.slowWaveSleepHours)))}h | REM ${formatNumber(average(data.map((row) => row.remSleepHours)))}h`;
+  if (!data.length) {
+    elements.sleepStagesChart.innerHTML = "";
+    elements.sleepStagesChart.appendChild(cloneEmptyState());
+    return;
+  }
+  elements.sleepStagesChart.innerHTML = stackedBarChartSvg(data, {
+    labelKey: "date",
+    groups: [
+      { key: "lightSleepHours", label: "Light", color: "#6ba3d6" },
+      { key: "slowWaveSleepHours", label: "SWS", color: "#2d5f8a" },
+      { key: "remSleepHours", label: "REM", color: "#a4508b" },
+    ],
+    ySuffix: "h",
+  });
+}
+
+function renderWorkouts(series) {
   const data = series.slice(-14);
-  const sports = (metrics.sports || [])
-    .slice(0, 3)
-    .map(([name, count]) => `${name} ${count}`)
-    .join(" · ");
-  elements.workoutNote.textContent = `${formatNumber(metrics.count)} sessions | ${formatNumber(metrics.totalDurationHours)}h total | ${sports}`;
+  const totalSessions = series.reduce((sum, row) => sum + (row.sessions || 0), 0);
+  elements.workoutNote.textContent = `${formatNumber(totalSessions)} sessions | ${formatNumber(average(series.map((row) => row.totalStrain)))} avg daily strain`;
   if (!data.length) {
     elements.workoutChart.innerHTML = "";
     elements.workoutChart.appendChild(cloneEmptyState());
@@ -336,9 +508,52 @@ function renderWorkouts(series, metrics) {
   });
 }
 
-function renderCycles(series, metrics) {
+function aggregateHeartRateZones(workoutSessions) {
+  const totals = {
+    zone1: 0,
+    zone2: 0,
+    zone3: 0,
+    zone4: 0,
+    zone5: 0,
+    zone6: 0,
+  };
+
+  workoutSessions.forEach((session) => {
+    const zones = session.zoneDurationsMinutes || {};
+    totals.zone1 += zones.zone1 || 0;
+    totals.zone2 += zones.zone2 || 0;
+    totals.zone3 += zones.zone3 || 0;
+    totals.zone4 += zones.zone4 || 0;
+    totals.zone5 += zones.zone5 || 0;
+    totals.zone6 += zones.zone6 || 0;
+  });
+
+  return [
+    { label: "Zone 1", value: totals.zone1, color: "#c3d6e6" },
+    { label: "Zone 2", value: totals.zone2, color: "#9dbed9" },
+    { label: "Zone 3", value: totals.zone3, color: "#6ba3d6" },
+    { label: "Zone 4", value: totals.zone4, color: "#3e7eb1" },
+    { label: "Zone 5", value: totals.zone5, color: "#2d5f8a" },
+    { label: "Zone 6", value: totals.zone6, color: "#1f4768" },
+  ];
+}
+
+function renderHeartRateZones(workoutSessions) {
+  const zones = aggregateHeartRateZones(workoutSessions);
+  const totalMinutes = zones.reduce((sum, zone) => sum + zone.value, 0);
+  elements.hrZoneNote.textContent = `${formatNumber(totalMinutes)} total minutes across all zones`;
+  if (!totalMinutes) {
+    elements.hrZoneChart.innerHTML = "";
+    elements.hrZoneChart.appendChild(cloneEmptyState());
+    return;
+  }
+
+  elements.hrZoneChart.innerHTML = horizontalStackedBarSvg(zones);
+}
+
+function renderCycles(series) {
   const data = series.slice(-14);
-  elements.cycleNote.textContent = `${formatNumber(metrics.count)} cycles | Avg strain ${formatNumber(metrics.averageStrain)} | Avg kJ ${formatNumber(metrics.averageKilojoule)} | Avg HR ${formatNumber(metrics.averageHeartRate)}`;
+  elements.cycleNote.textContent = `${formatNumber(series.length)} cycles | Avg strain ${formatNumber(average(series.map((row) => row.strain)))} | Avg kJ ${formatNumber(average(series.map((row) => row.kilojoule)))}`;
   if (!data.length) {
     elements.cycleChart.innerHTML = "";
     elements.cycleChart.appendChild(cloneEmptyState());
@@ -353,6 +568,38 @@ function renderCycles(series, metrics) {
     max: 21,
     ySuffix: "",
   });
+}
+
+function renderSportDonut(workoutSessions) {
+  const counts = new Map();
+  workoutSessions.forEach((session) => {
+    const sport = session.sport || "unknown";
+    counts.set(sport, (counts.get(sport) || 0) + 1);
+  });
+  const entries = Array.from(counts.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+
+  elements.sportDonutNote.textContent = `${formatNumber(workoutSessions.length)} workout sessions in range`;
+  if (!entries.length) {
+    elements.sportDonutChart.innerHTML = "";
+    elements.sportDonutChart.appendChild(cloneEmptyState());
+    return;
+  }
+
+  elements.sportDonutChart.innerHTML = donutChartSvg(entries);
+}
+
+function renderRecoveryHeatmap(recoverySeries) {
+  const rows = recoverySeries.slice(-90);
+  elements.recoveryHeatmapNote.textContent = `${formatNumber(rows.length)} days plotted`;
+  if (!rows.length) {
+    elements.recoveryHeatmap.innerHTML = "";
+    elements.recoveryHeatmap.appendChild(cloneEmptyState());
+    return;
+  }
+  elements.recoveryHeatmap.innerHTML = calendarHeatmapSvg(rows);
 }
 
 function renderHighlights(highlights) {
@@ -589,6 +836,72 @@ function lineChartSvg(rows, options) {
   `;
 }
 
+function dualLineChartSvg(rows, options) {
+  const width = 780;
+  const height = 320;
+  const padding = { top: 20, right: 16, bottom: 42, left: 50 };
+  const values = rows
+    .flatMap((row) => [row[options.primaryKey], row[options.secondaryKey]])
+    .filter(isNumber);
+  if (values.length < 2) {
+    return cloneEmptyState().firstElementChild.outerHTML;
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+
+  function pointsFor(key) {
+    return rows
+      .map((row, index) => {
+        const value = row[key];
+        if (!isNumber(value)) {
+          return null;
+        }
+        const x = padding.left + (index / (rows.length - 1 || 1)) * innerWidth;
+        const y = padding.top + (1 - (value - min) / range) * innerHeight;
+        return { x, y, value, label: row[options.labelKey] };
+      })
+      .filter(Boolean);
+  }
+
+  const primary = pointsFor(options.primaryKey);
+  const secondary = pointsFor(options.secondaryKey);
+  const primaryPath = primary.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const secondaryPath = secondary.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+
+  const labels = [primary[0], primary[Math.floor(primary.length / 2)], primary.at(-1)]
+    .filter(Boolean)
+    .map((point) => `<text x="${point.x}" y="${height - 14}" text-anchor="middle" font-size="10" fill="#5f6f72">${formatDate(point.label)}</text>`)
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="HRV with 7-day moving average">
+      ${Array.from({ length: 5 }, (_, index) => {
+        const ratio = index / 4;
+        const y = padding.top + ratio * innerHeight;
+        const label = (max - ratio * range).toFixed(0);
+        return `
+          <g>
+            <line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="rgba(24,49,54,0.1)" />
+            <text x="${padding.left - 10}" y="${y + 4}" text-anchor="end" font-size="11" fill="#5f6f72">${label}${options.ySuffix || ""}</text>
+          </g>
+        `;
+      }).join("")}
+      <path d="${secondaryPath}" fill="none" stroke="${options.secondaryColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+      <path d="${primaryPath}" fill="none" stroke="${options.primaryColor}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"></path>
+      ${primary.map((point) => `<circle cx="${point.x}" cy="${point.y}" r="3.5" fill="${options.primaryColor}" />`).join("")}
+      ${labels}
+    </svg>
+    <div class="chart-legend">
+      <span><i style="background:${options.primaryColor}"></i>Daily HRV</span>
+      <span><i style="background:${options.secondaryColor}"></i>7-day average</span>
+    </div>
+  `;
+}
+
 function groupedBarChartSvg(rows, options) {
   const width = 780;
   const height = 320;
@@ -662,6 +975,72 @@ function groupedBarChartSvg(rows, options) {
   `;
 }
 
+function stackedBarChartSvg(rows, options) {
+  const width = 780;
+  const height = 320;
+  const padding = { top: 18, right: 16, bottom: 48, left: 48 };
+  const totals = rows
+    .map((row) => options.groups.reduce((sum, group) => sum + (row[group.key] || 0), 0))
+    .filter(isNumber);
+  if (!totals.length) {
+    return cloneEmptyState().firstElementChild.outerHTML;
+  }
+
+  const max = Math.max(...totals) * 1.12;
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const groupWidth = innerWidth / rows.length;
+  const barWidth = Math.max(14, groupWidth - 10);
+
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    const y = padding.top + ratio * innerHeight;
+    const label = (max - ratio * max).toFixed(1);
+    return `
+      <g>
+        <line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="rgba(24,49,54,0.1)" />
+        <text x="${padding.left - 10}" y="${y + 4}" text-anchor="end" font-size="11" fill="#5f6f72">${label}${options.ySuffix || ""}</text>
+      </g>
+    `;
+  }).join("");
+
+  const bars = rows
+    .map((row, index) => {
+      const x = padding.left + index * groupWidth + (groupWidth - barWidth) / 2;
+      let yCursor = height - padding.bottom;
+      const stacks = options.groups
+        .map((group) => {
+          const value = row[group.key] || 0;
+          if (!value) {
+            return "";
+          }
+          const barHeight = (value / max) * innerHeight;
+          yCursor -= barHeight;
+          return `<rect x="${x}" y="${yCursor}" width="${barWidth}" height="${barHeight}" rx="6" fill="${group.color}" />`;
+        })
+        .join("");
+      return `
+        <g>
+          ${stacks}
+          <text x="${x + barWidth / 2}" y="${height - 16}" text-anchor="middle" font-size="10" fill="#5f6f72">${formatDate(row[options.labelKey])}</text>
+        </g>
+      `;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Stacked sleep stage bars">
+      ${grid}
+      ${bars}
+    </svg>
+    <div class="chart-legend">
+      ${options.groups
+        .map((group) => `<span><i style="background:${group.color}"></i>${group.label}</span>`)
+        .join("")}
+    </div>
+  `;
+}
+
 function barChartSvg(rows, options) {
   const width = 780;
   const height = 320;
@@ -712,10 +1091,141 @@ function barChartSvg(rows, options) {
   `;
 }
 
-function isNumber(value) {
-  return typeof value === "number" && !Number.isNaN(value);
+function horizontalStackedBarSvg(entries) {
+  const width = 780;
+  const height = 170;
+  const padding = { top: 30, right: 16, bottom: 22, left: 16 };
+  const total = entries.reduce((sum, item) => sum + item.value, 0);
+  let cursor = padding.left;
+
+  const bars = entries
+    .map((item) => {
+      const w = total ? ((item.value / total) * (width - padding.left - padding.right)) : 0;
+      const segment = `<rect x="${cursor}" y="${padding.top}" width="${w}" height="46" rx="8" fill="${item.color}" />`;
+      cursor += w;
+      return segment;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Heart rate zone distribution">
+      ${bars}
+      <text x="${padding.left}" y="${padding.top + 70}" font-size="12" fill="#5f6f72">Total: ${formatNumber(total)} min</text>
+    </svg>
+    <div class="chart-legend">
+      ${entries
+        .map((item) => {
+          const pct = total ? ((item.value / total) * 100).toFixed(1) : "0.0";
+          return `<span><i style="background:${item.color}"></i>${item.label} ${pct}%</span>`;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function donutChartSvg(entries) {
+  const width = 780;
+  const height = 280;
+  const cx = 180;
+  const cy = 140;
+  const radius = 90;
+  const innerRadius = 54;
+  const colors = ["#17736a", "#2d5f8a", "#a4508b", "#b3721d", "#6ba3d6", "#bf5448", "#7d5a1a", "#5f6f72"];
+  const total = entries.reduce((sum, item) => sum + item.value, 0);
+
+  let start = -Math.PI / 2;
+  const slices = entries.map((entry, index) => {
+    const portion = total ? entry.value / total : 0;
+    const angle = portion * Math.PI * 2;
+    const end = start + angle;
+
+    const x1 = cx + Math.cos(start) * radius;
+    const y1 = cy + Math.sin(start) * radius;
+    const x2 = cx + Math.cos(end) * radius;
+    const y2 = cy + Math.sin(end) * radius;
+    const largeArc = angle > Math.PI ? 1 : 0;
+
+    const ix1 = cx + Math.cos(end) * innerRadius;
+    const iy1 = cy + Math.sin(end) * innerRadius;
+    const ix2 = cx + Math.cos(start) * innerRadius;
+    const iy2 = cy + Math.sin(start) * innerRadius;
+
+    const d = [
+      `M ${x1} ${y1}`,
+      `A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`,
+      `L ${ix1} ${iy1}`,
+      `A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${ix2} ${iy2}`,
+      "Z",
+    ].join(" ");
+
+    const color = colors[index % colors.length];
+    start = end;
+    return `<path d="${d}" fill="${color}" />`;
+  });
+
+  const legend = entries
+    .map((entry, index) => {
+      const color = colors[index % colors.length];
+      const pct = total ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+      return `<span><i style="background:${color}"></i>${entry.label} ${pct}%</span>`;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Workout sport distribution">
+      ${slices.join("")}
+      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="22" fill="#183136" font-weight="700">${formatNumber(total)}</text>
+      <text x="${cx}" y="${cy + 18}" text-anchor="middle" font-size="12" fill="#5f6f72">sessions</text>
+    </svg>
+    <div class="chart-legend">${legend}</div>
+  `;
+}
+
+function recoveryColor(score) {
+  if (!isNumber(score)) {
+    return "#dde5e7";
+  }
+  if (score >= 67) {
+    return "#17736a";
+  }
+  if (score >= 34) {
+    return "#c6ad73";
+  }
+  return "#bf5448";
+}
+
+function calendarHeatmapSvg(rows) {
+  const size = 12;
+  const gap = 3;
+  const columns = 7;
+  const rowCount = Math.ceil(rows.length / columns);
+  const width = columns * (size + gap) + 30;
+  const height = rowCount * (size + gap) + 28;
+
+  const squares = rows
+    .map((row, index) => {
+      const col = index % columns;
+      const rowIndex = Math.floor(index / columns);
+      const x = 20 + col * (size + gap);
+      const y = 10 + rowIndex * (size + gap);
+      return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="2" fill="${recoveryColor(row.recoveryScore)}"><title>${row.date}: ${row.recoveryScore ?? "n/a"}</title></rect>`;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Recovery calendar heatmap">
+      ${squares}
+    </svg>
+    <div class="chart-legend">
+      <span><i style="background:#bf5448"></i>Low</span>
+      <span><i style="background:#c6ad73"></i>Medium</span>
+      <span><i style="background:#17736a"></i>High</span>
+    </div>
+  `;
 }
 
 elements.refreshButton.addEventListener("click", () => loadDashboard(true));
+elements.startDateInput.addEventListener("change", onDateRangeChange);
+elements.endDateInput.addEventListener("change", onDateRangeChange);
 
 loadDashboard();

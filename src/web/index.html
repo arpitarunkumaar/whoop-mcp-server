@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <title>WHOOP Health Deck</title>
-    <link rel="stylesheet" href="/styles.css?v=20260315b" />
+    <link rel="stylesheet" href="/styles.css?v=20260322a" />
   </head>
   <body>
     <div class="backdrop"></div>
@@ -24,7 +24,18 @@
           <button class="refresh-button" id="refresh-button" type="button">
             Refresh live data
           </button>
+          <p class="data-source-badge" id="data-source-badge">Data source: live</p>
           <p class="generated-at" id="generated-at">Preparing latest snapshot</p>
+          <div class="date-filters">
+            <label>
+              Start
+              <input type="date" id="start-date-input" />
+            </label>
+            <label>
+              End
+              <input type="date" id="end-date-input" />
+            </label>
+          </div>
         </div>
         <div class="hero-meta" id="hero-meta"></div>
       </header>
@@ -54,6 +65,17 @@
           <div class="chart" id="recovery-chart"></div>
         </section>
 
+        <section class="panel chart-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">HRV</p>
+              <h2>HRV trend (RMSSD)</h2>
+            </div>
+            <p class="section-note" id="hrv-note"></p>
+          </div>
+          <div class="chart" id="hrv-chart"></div>
+        </section>
+
         <section class="panel story-panel">
           <div class="section-heading">
             <div>
@@ -79,12 +101,34 @@
         <section class="panel chart-panel">
           <div class="section-heading">
             <div>
+              <p class="eyebrow">Sleep Stages</p>
+              <h2>Nightly stage breakdown</h2>
+            </div>
+            <p class="section-note" id="sleep-stages-note"></p>
+          </div>
+          <div class="chart" id="sleep-stages-chart"></div>
+        </section>
+
+        <section class="panel chart-panel">
+          <div class="section-heading">
+            <div>
               <p class="eyebrow">Training</p>
               <h2>Workout load</h2>
             </div>
             <p class="section-note" id="workout-note"></p>
           </div>
           <div class="chart" id="workout-chart"></div>
+        </section>
+
+        <section class="panel chart-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Heart Rate Zones</p>
+              <h2>Zone distribution</h2>
+            </div>
+            <p class="section-note" id="hr-zone-note"></p>
+          </div>
+          <div class="chart" id="hr-zone-chart"></div>
         </section>
 
         <section class="panel chart-panel physiology-panel">
@@ -96,6 +140,28 @@
             <p class="section-note" id="cycle-note"></p>
           </div>
           <div class="chart" id="cycle-chart"></div>
+        </section>
+
+        <section class="panel chart-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Sports</p>
+              <h2>Workout sport mix</h2>
+            </div>
+            <p class="section-note" id="sport-donut-note"></p>
+          </div>
+          <div class="chart" id="sport-donut-chart"></div>
+        </section>
+
+        <section class="panel panel-wide">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Recovery Calendar</p>
+              <h2>Last 90 days</h2>
+            </div>
+            <p class="section-note" id="recovery-heatmap-note"></p>
+          </div>
+          <div class="chart calendar-chart" id="recovery-heatmap"></div>
         </section>
 
         <section class="panel panel-split">
@@ -177,6 +243,6 @@
       </div>
     </template>
 
-    <script type="module" src="/app.js?v=20260315b"></script>
+    <script type="module" src="/app.js?v=20260322a"></script>
   </body>
 </html>

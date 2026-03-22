@@ -95,7 +95,49 @@ body {
 .hero-actions {
   display: grid;
   justify-items: end;
-  gap: 16px;
+  gap: 12px;
+}
+
+.data-source-badge {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.data-source-badge.offline {
+  border-color: rgba(179, 114, 29, 0.4);
+  background: rgba(179, 114, 29, 0.16);
+}
+
+.date-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: min(320px, 100%);
+}
+
+.date-filters label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.date-filters input[type="date"] {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--text);
+  font: inherit;
 }
 
 .hero-meta {
@@ -337,6 +379,10 @@ body {
   min-height: 280px;
 }
 
+.calendar-chart {
+  min-height: 210px;
+}
+
 .chart svg,
 .sparkline svg {
   width: 100%;
@@ -437,6 +483,28 @@ body {
   color: #eef4f1;
   font-size: 0.8rem;
   line-height: 1.45;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.chart-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
 }
 
 .highlight-card h3,
@@ -619,5 +687,9 @@ body {
 
   .section-note {
     text-align: left;
+  }
+
+  .date-filters {
+    width: 100%;
   }
 }
