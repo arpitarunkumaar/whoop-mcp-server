@@ -103,6 +103,13 @@ def sleep_actual_hours(record: Dict[str, Any]) -> Optional[float]:
     return round(millis / 3_600_000, 2)
 
 
+def milli_to_hours(value: Optional[float], digits: int = 2) -> Optional[float]:
+    """Convert milliseconds to hours for dashboard display."""
+    if value is None:
+        return None
+    return round(value / 3_600_000, digits)
+
+
 def sleep_need_hours(record: Dict[str, Any]) -> Optional[float]:
     """Compute WHOOP sleep need from its component buckets."""
     sleep_need = (record.get("score") or {}).get("sleep_needed") or {}
@@ -334,7 +341,13 @@ class DashboardAnalyzer:
             "cards": [],
             "insights": [],
             "highlights": [],
-            "series": {"recovery": [], "sleep": [], "workouts": [], "cycles": []},
+            "series": {
+                "recovery": [],
+                "sleep": [],
+                "workouts": [],
+                "workoutSessions": [],
+                "cycles": [],
+            },
             "recentDays": [],
             "monthly": [],
             "metrics": {
@@ -344,6 +357,14 @@ class DashboardAnalyzer:
                 "workouts": {},
                 "cycles": {},
                 "correlations": [],
+            },
+            "rawData": {
+                "profile": {},
+                "bodyMeasurements": {},
+                "recovery": [],
+                "sleep": [],
+                "workouts": [],
+                "cycles": [],
             },
             "rawSnapshots": {},
             "errorState": {
@@ -425,6 +446,7 @@ class DashboardAnalyzer:
         respiratory_rate_values = []
         for record in sleep:
             score = record.get("score") or {}
+            stage_summary = score.get("stage_summary") or {}
             actual_hours = sleep_actual_hours(record)
             need_hours = sleep_need_hours(record)
             debt_hours = sleep_debt_hours(record)
@@ -432,6 +454,9 @@ class DashboardAnalyzer:
             entry = {
                 "date": record.get("start", "")[:10],
                 "isNap": bool(record.get("nap")),
+                "start": record.get("start"),
+                "end": record.get("end"),
+                "timezoneOffset": record.get("timezone_offset"),
                 "sleepPerformance": score.get("sleep_performance_percentage"),
                 "sleepEfficiency": round_value(score.get("sleep_efficiency_percentage")),
                 "sleepConsistency": score.get("sleep_consistency_percentage"),
@@ -440,6 +465,13 @@ class DashboardAnalyzer:
                 "debtHours": debt_hours,
                 "gapHours": gap_hours,
                 "respiratoryRate": round_value(score.get("respiratory_rate")),
+                "inBedHours": milli_to_hours(stage_summary.get("total_in_bed_time_milli")),
+                "awakeHours": milli_to_hours(stage_summary.get("total_awake_time_milli")),
+                "lightSleepHours": milli_to_hours(stage_summary.get("total_light_sleep_time_milli")),
+                "slowWaveSleepHours": milli_to_hours(stage_summary.get("total_slow_wave_sleep_time_milli")),
+                "remSleepHours": milli_to_hours(stage_summary.get("total_rem_sleep_time_milli")),
+                "sleepCycleCount": stage_summary.get("sleep_cycle_count"),
+                "disturbanceCount": stage_summary.get("disturbance_count"),
             }
             sleep_series.append(entry)
             sleep_performance_values.append(entry["sleepPerformance"])
@@ -472,14 +504,26 @@ class DashboardAnalyzer:
             duration_minutes = workout_duration_minutes(record)
             exercise_date = record.get("start", "")[:10]
             sports_counter[record.get("sport_name") or "unknown"] += 1
+            zone_durations = score.get("zone_durations") or {}
 
             workout_entry = {
                 "date": exercise_date,
+                "start": record.get("start"),
+                "end": record.get("end"),
+                "timezoneOffset": record.get("timezone_offset"),
                 "sport": record.get("sport_name"),
                 "durationMinutes": duration_minutes,
                 "strain": round_value(score.get("strain")),
                 "averageHeartRate": score.get("average_heart_rate"),
                 "maxHeartRate": score.get("max_heart_rate"),
+                "zoneDurationsMinutes": {
+                    "zone0": round_value((zone_durations.get("zone_zero_milli") or 0) / 60_000, 2),
+                    "zone1": round_value((zone_durations.get("zone_one_milli") or 0) / 60_000, 2),
+                    "zone2": round_value((zone_durations.get("zone_two_milli") or 0) / 60_000, 2),
+                    "zone3": round_value((zone_durations.get("zone_three_milli") or 0) / 60_000, 2),
+                    "zone4": round_value((zone_durations.get("zone_four_milli") or 0) / 60_000, 2),
+                    "zone5": round_value((zone_durations.get("zone_five_milli") or 0) / 60_000, 2),
+                },
             }
             workout_records.append(workout_entry)
 
@@ -675,6 +719,12 @@ class DashboardAnalyzer:
 
         latest_month = monthly_series[-1] if monthly_series else None
         previous_month = monthly_series[-2] if len(monthly_series) > 1 else None
+        recovery_delta = delta(recent_recovery_average, previous_recovery_average)
+        sleep_performance_delta = delta(
+            recent_sleep_performance_average,
+            previous_sleep_performance_average,
+        )
+        latest_sleep_hours_average = mean(recent_sleep_hours)
 
         summary_cards = [
             {
@@ -682,33 +732,32 @@ class DashboardAnalyzer:
                 "title": "Recovery",
                 "value": recent_recovery_average,
                 "suffix": "",
-                "delta": delta(recent_recovery_average, previous_recovery_average),
+                "delta": recovery_delta,
                 "deltaLabel": "vs prior 7 days",
                 "sparkline": last_n(recovery_scores, 14),
                 "deltaFormat": "signed",
                 "deltaSuffix": "",
                 "deltaDigits": 1,
                 "tone": "positive"
-                if delta(recent_recovery_average, previous_recovery_average)
-                and delta(recent_recovery_average, previous_recovery_average) > 0
+                if recovery_delta
+                and recovery_delta > 0
                 else "neutral",
                 "detail": f"{sum(1 for value in recovery_scores if value is not None and value >= 67)} high-recovery days",
             },
             {
                 "id": "sleep-hours",
                 "title": "Sleep",
-                "value": mean(recent_sleep_hours),
+                "value": latest_sleep_hours_average,
                 "suffix": "h",
-                "delta": delta(
-                    recent_sleep_performance_average,
-                    previous_sleep_performance_average,
-                ),
+                "delta": sleep_performance_delta,
                 "deltaLabel": "sleep performance vs prior 7 days",
                 "sparkline": last_n(sleep_hours_values, 14),
                 "deltaFormat": "signed",
                 "deltaSuffix": " pts",
                 "deltaDigits": 1,
-                "tone": "positive",
+                "tone": "warning"
+                if sleep_performance_delta is not None and sleep_performance_delta < 0
+                else "positive",
                 "detail": f"{recent_sleep_gap_average}h average gap to need",
             },
             {
@@ -757,19 +806,48 @@ class DashboardAnalyzer:
             },
         ]
 
+        if recovery_delta is None:
+            recovery_title = "Recovery trend is unclear"
+            recovery_body = (
+                "There is not enough history to compare the latest 7-day recovery window "
+                "against the prior week."
+            )
+        elif recovery_delta > 0:
+            recovery_title = "Recovery is trending up"
+            recovery_body = (
+                f"Your latest 7-day recovery average is {recent_recovery_average}, "
+                f"up {abs(recovery_delta)} points from the prior week."
+            )
+        elif recovery_delta < 0:
+            recovery_title = "Recovery is trending down"
+            recovery_body = (
+                f"Your latest 7-day recovery average is {recent_recovery_average}, "
+                f"down {abs(recovery_delta)} points from the prior week."
+            )
+        else:
+            recovery_title = "Recovery is holding steady"
+            recovery_body = (
+                f"Your latest 7-day recovery average is {recent_recovery_average}, "
+                "unchanged from the prior week."
+            )
+
         insights = [
             {
-                "title": "Recovery is trending up",
-                "body": (
-                    f"Your latest 7-day recovery average is {recent_recovery_average}, "
-                    f"up {delta(recent_recovery_average, previous_recovery_average)} points from the prior week."
-                ),
+                "title": recovery_title,
+                "body": recovery_body,
             },
             {
-                "title": "Sleep quantity is the main constraint",
+                "title": "Sleep quantity is the main constraint"
+                if (mean(sleep_gap_values) or 0) > 0
+                else "Sleep quantity is covering your need",
                 "body": (
                     f"You average {mean(sleep_hours_values)} hours of sleep against "
                     f"{mean(sleep_need_values)} hours needed, leaving a {mean(sleep_gap_values)} hour nightly gap."
+                    if (mean(sleep_gap_values) or 0) > 0
+                    else (
+                        f"You average {mean(sleep_hours_values)} hours of sleep against "
+                        f"{mean(sleep_need_values)} hours needed, which means you are at or above need on average."
+                    )
                 ),
             },
             {
@@ -781,9 +859,25 @@ class DashboardAnalyzer:
             },
         ]
         if latest_month and previous_month:
+            latest_gap = latest_month["avgSleepGapHours"]
+            previous_gap = previous_month["avgSleepGapHours"]
+            month_is_better = (
+                latest_month["avgSleepPerformance"] is not None
+                and previous_month["avgSleepPerformance"] is not None
+                and latest_month["avgSleepPerformance"] >= previous_month["avgSleepPerformance"]
+                and (
+                    latest_gap is None
+                    or previous_gap is None
+                    or latest_gap <= previous_gap
+                )
+            )
             insights.append(
                 {
-                    "title": f"{latest_month['label']} is trending better",
+                    "title": (
+                        f"{latest_month['label']} is trending better"
+                        if month_is_better
+                        else f"{latest_month['label']} needs attention"
+                    ),
                     "body": (
                         f"{latest_month['label']} shows sleep performance at {latest_month['avgSleepPerformance']}% "
                         f"versus {previous_month['avgSleepPerformance']}% in {previous_month['label']}, "
@@ -927,6 +1021,7 @@ class DashboardAnalyzer:
                 "recovery": recovery_series,
                 "sleep": sleep_series,
                 "workouts": workout_series,
+                "workoutSessions": workout_records,
                 "cycles": cycle_series,
             },
             "recentDays": recent_days,
@@ -1000,6 +1095,14 @@ class DashboardAnalyzer:
                         "samples": len(workout_dates),
                     },
                 ],
+            },
+            "rawData": {
+                "profile": profile,
+                "bodyMeasurements": body_measurements,
+                "recovery": recovery,
+                "sleep": sleep,
+                "workouts": workouts,
+                "cycles": cycles,
             },
             "rawSnapshots": {
                 "profile": profile,

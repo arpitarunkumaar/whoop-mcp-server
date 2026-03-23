@@ -89,6 +89,8 @@ celerybeat-schedule
 # Environments
 .env
 .venv
+.venv_run/
+.tmpvenv/
 .venv311/
 env/
 venv/

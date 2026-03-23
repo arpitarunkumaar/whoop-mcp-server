@@ -166,6 +166,9 @@ class TestDashboardAnalysis(unittest.TestCase):
         self.assertEqual(payload["cards"][2]["id"], "sleep-debt")
         self.assertEqual(payload["cards"][2]["value"], 0.5)
         self.assertEqual(payload["sources"]["cycles"]["available"], False)
+        self.assertIn("rawData", payload)
+        self.assertEqual(payload["rawData"]["profile"]["first_name"], "Arpit")
+        self.assertEqual(len(payload["rawData"]["sleep"]), 2)
 
     def test_build_dashboard_returns_empty_payload_without_tokens(self):
         """Missing auth should return a safe empty payload instead of raising."""
