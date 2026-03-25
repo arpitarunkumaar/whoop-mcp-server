@@ -77,7 +77,7 @@ def parse_timestamp(value: Optional[str]) -> Optional[datetime]:
 
 def record_key(record: Dict[str, Any], index: int) -> str:
     """Build a stable dedupe key across WHOOP collections."""
-    for key in ("id", "cycle_id", "sleep_id", "v1_id"):
+    for key in ("id", "cycle_id", "sleep_id"):
         value = record.get(key)
         if value not in (None, ""):
             return f"{key}:{value}"
@@ -513,13 +513,7 @@ async def fetch_official_docs_snapshot(output_dir: Path, run_output_dir: Path) -
     write_text(output_dir / "official_api_docs.html", html)
     write_text(run_output_dir / "official_api_docs.html", html)
 
-    paths = sorted(
-        {
-            match
-            for match in re.findall(r"/v[12]/[A-Za-z0-9_./{}:-]+", html)
-            if match.startswith("/v")
-        }
-    )
+    paths = sorted(set(re.findall(r"/v2/[A-Za-z0-9_./{}:-]+", html)))
     summary = {
         "dataset": "official_api_docs",
         "type": "reference",
@@ -714,15 +708,6 @@ async def export_all(
             unique_values(fetched_collection_records.get("workouts", []), "id"),
             lambda identifier: f"/activity/workout/{identifier}",
             "workout_id",
-        ),
-        (
-            "activity_mappings_by_v1_id",
-            sorted(
-                set(unique_values(fetched_collection_records.get("sleep", []), "v1_id"))
-                | set(unique_values(fetched_collection_records.get("workouts", []), "v1_id"))
-            ),
-            lambda identifier: f"/activity-mapping/{identifier}",
-            "activity_v1_id",
         ),
     ]
 
