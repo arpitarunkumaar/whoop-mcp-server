@@ -59,13 +59,13 @@ const el = {
 };
 
 const PALETTE = {
-  green: "#00f0c8",
-  teal: "#19e0c1",
-  blue: "#6ea7ff",
-  amber: "#eca126",
-  rose: "#f27cab",
-  purple: "#a685ff",
-  whiteMuted: "rgba(255,255,255,0.22)",
+  green: "#2a9d8f",
+  teal: "#2a9d8f",
+  blue: "#4a90a4",
+  amber: "#c4934a",
+  rose: "#c27d8a",
+  purple: "#8b7bb5",
+  whiteMuted: "rgba(26,26,26,0.08)",
 };
 
 const SPARKLINE_COLORS = {
@@ -598,7 +598,7 @@ function signalYGrid(width, height, pad, domainMin, domainMax) {
     const ratio = index / steps;
     const y = pad.top + ratio * (height - pad.top - pad.bottom);
     const value = domainMax - ratio * range;
-    return `<line x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4 5"></line>
+    return `<line x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}" stroke="rgba(26,26,26,0.06)" stroke-dasharray="4 5"></line>
       <text x="${(pad.left - 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="rgba(176,192,221,0.4)">${escapeHtml(fmt(value, value > 10 ? 0 : 1))}</text>`;
   }).join("");
 }
@@ -689,7 +689,7 @@ function renderSignalsExplorer(data, signalRows, sleepAllSeries, workoutSessions
     </defs>
     ${signalYGrid(width, height, pad, domainMin, domainMax)}
     ${areaPath ? `<path d="${areaPath}" fill="url(#signals-fill)"></path>` : ""}
-    ${selectedIndex >= 0 ? `<line x1="${xPos(selectedIndex).toFixed(1)}" y1="${pad.top}" x2="${xPos(selectedIndex).toFixed(1)}" y2="${height - pad.bottom + 2}" stroke="rgba(255,255,255,0.16)" stroke-dasharray="5 5"></line>` : ""}
+    ${selectedIndex >= 0 ? `<line x1="${xPos(selectedIndex).toFixed(1)}" y1="${pad.top}" x2="${xPos(selectedIndex).toFixed(1)}" y2="${height - pad.bottom + 2}" stroke="rgba(26,26,26,0.12)" stroke-dasharray="5 5"></line>` : ""}
     ${path ? `<path d="${path}" fill="none" stroke="${metric.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
     ${signalRows.map((row, index) => {
       const value = row?.[metric.key];
@@ -697,13 +697,13 @@ function renderSignalsExplorer(data, signalRows, sleepAllSeries, workoutSessions
       const y = isNum(value) ? yPos(value) : height - pad.bottom + 8;
       return `
         ${isNum(value) ? `<g class="signal-point ${row.date === selectedRow?.date ? "is-selected" : ""}">
-          <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${row.date === selectedRow?.date ? 6 : 4}" fill="${metric.color}" stroke="rgba(8,17,31,0.95)" stroke-width="${row.date === selectedRow?.date ? 3 : 2}" ${chartTipAttrs(`${fmtTableDay(row.date)} · ${metric.formatter(value)}`, metric.color)}></circle>
+          <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${row.date === selectedRow?.date ? 6 : 4}" fill="${metric.color}" stroke="rgba(255,255,255,0.95)" stroke-width="${row.date === selectedRow?.date ? 3 : 2}" ${chartTipAttrs(`${fmtTableDay(row.date)} · ${metric.formatter(value)}`, metric.color)}></circle>
         </g>` : ""}
       `;
     }).join("")}
     ${selectedIndex >= 0 && isNum(selectedValue) ? `<g>
-      <rect x="${(xPos(selectedIndex) - 64).toFixed(1)}" y="${Math.max(yPos(selectedValue) - 40, pad.top + 4).toFixed(1)}" width="128" height="28" rx="14" fill="rgba(6,16,29,0.92)" stroke="${metric.color}" stroke-opacity="0.32"></rect>
-      <text x="${xPos(selectedIndex).toFixed(1)}" y="${Math.max(yPos(selectedValue) - 21, pad.top + 22).toFixed(1)}" text-anchor="middle" font-size="11" fill="#f7fbff">${escapeHtml(`${fmtShortDate(selectedRow.date)} · ${metric.formatter(selectedValue)}`)}</text>
+      <rect x="${(xPos(selectedIndex) - 64).toFixed(1)}" y="${Math.max(yPos(selectedValue) - 40, pad.top + 4).toFixed(1)}" width="128" height="28" rx="14" fill="rgba(255,255,255,0.95)" stroke="${metric.color}" stroke-opacity="0.32"></rect>
+      <text x="${xPos(selectedIndex).toFixed(1)}" y="${Math.max(yPos(selectedValue) - 21, pad.top + 22).toFixed(1)}" text-anchor="middle" font-size="11" fill="#1a1a1a">${escapeHtml(`${fmtShortDate(selectedRow.date)} · ${metric.formatter(selectedValue)}`)}</text>
     </g>` : ""}
     ${signalAxisLabels(signalRows, width, height, pad)}
   </svg>`;
@@ -744,8 +744,8 @@ function makeGrid(width, height, pad, count, min, max) {
     const ratio = index / (count - 1);
     const y = pad.top + ratio * (height - pad.top - pad.bottom);
     const label = (max - ratio * range).toFixed(0);
-    return `<line x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,0.07)" stroke-dasharray="4 4"></line>
-      <text x="${(pad.left - 6).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="rgba(255,255,255,0.35)">${label}</text>`;
+    return `<line x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}" stroke="rgba(26,26,26,0.08)" stroke-dasharray="4 4"></line>
+      <text x="${(pad.left - 6).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="rgba(26,26,26,0.4)">${label}</text>`;
   }).join("");
 }
 
@@ -868,10 +868,10 @@ function renderRecoveryChart(series) {
     <polyline fill="none" stroke="${PALETTE.green}" stroke-width="2.5" points="${recoveryPoints.join(" ")}" stroke-linecap="round" stroke-linejoin="round"></polyline>
     <polyline fill="none" stroke="${PALETTE.blue}" stroke-width="1.8" stroke-dasharray="5 3" points="${hrvPoints.join(" ")}" stroke-linecap="round" stroke-linejoin="round"></polyline>
     ${series.map((row, index) => isNum(row.recoveryScore)
-      ? `<circle cx="${xPos(index).toFixed(1)}" cy="${yRecovery(row.recoveryScore).toFixed(1)}" r="5" fill="${PALETTE.green}" stroke="rgba(8,17,31,0.95)" stroke-width="2" ${chartTipAttrs(`${fmtTableDay(row.date)} · Recovery ${fmt(row.recoveryScore, 0)}`, PALETTE.green)}></circle>`
+      ? `<circle cx="${xPos(index).toFixed(1)}" cy="${yRecovery(row.recoveryScore).toFixed(1)}" r="5" fill="${PALETTE.green}" stroke="rgba(255,255,255,0.95)" stroke-width="2" ${chartTipAttrs(`${fmtTableDay(row.date)} · Recovery ${fmt(row.recoveryScore, 0)}`, PALETTE.green)}></circle>`
       : "").join("")}
     ${series.map((row, index) => isNum(row.hrv)
-      ? `<circle cx="${xPos(index).toFixed(1)}" cy="${yHrv(row.hrv).toFixed(1)}" r="4" fill="${PALETTE.blue}" stroke="rgba(8,17,31,0.95)" stroke-width="2" ${chartTipAttrs(`${fmtTableDay(row.date)} · HRV ${fmt(row.hrv, 2)} ms`, PALETTE.blue)}></circle>`
+      ? `<circle cx="${xPos(index).toFixed(1)}" cy="${yHrv(row.hrv).toFixed(1)}" r="4" fill="${PALETTE.blue}" stroke="rgba(255,255,255,0.95)" stroke-width="2" ${chartTipAttrs(`${fmtTableDay(row.date)} · HRV ${fmt(row.hrv, 2)} ms`, PALETTE.blue)}></circle>`
       : "").join("")}
     ${monthAxisLabels(series, width, height, pad)}
   </svg>`;
@@ -932,13 +932,13 @@ function renderSleepTargetChart(series) {
     </defs>
     ${makeGrid(width, height, pad, 4, 0, maxHours)}
     <path d="${areaFill}" fill="url(#sleep-gradient)"></path>
-    <polyline fill="none" stroke="rgba(255,255,255,0.24)" stroke-width="1.8" stroke-dasharray="5 3" points="${needPoints}" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    <polyline fill="none" stroke="rgba(26,26,26,0.2)" stroke-width="1.8" stroke-dasharray="5 3" points="${needPoints}" stroke-linecap="round" stroke-linejoin="round"></polyline>
     <polyline fill="none" stroke="${PALETTE.blue}" stroke-width="2.5" points="${actualPoints}" stroke-linecap="round" stroke-linejoin="round"></polyline>
     ${series.map((row, index) => isNum(row.actualHours)
-      ? `<circle cx="${xPos(index).toFixed(1)}" cy="${yVal(row.actualHours).toFixed(1)}" r="5" fill="${PALETTE.blue}" stroke="rgba(8,17,31,0.95)" stroke-width="2" ${chartTipAttrs(`${fmtTableDay(row.date)} · Slept ${fmtHm(row.actualHours)} / need ${fmtHm(row.needHours)}`, PALETTE.blue)}></circle>`
+      ? `<circle cx="${xPos(index).toFixed(1)}" cy="${yVal(row.actualHours).toFixed(1)}" r="5" fill="${PALETTE.blue}" stroke="rgba(255,255,255,0.95)" stroke-width="2" ${chartTipAttrs(`${fmtTableDay(row.date)} · Slept ${fmtHm(row.actualHours)} / need ${fmtHm(row.needHours)}`, PALETTE.blue)}></circle>`
       : "").join("")}
     ${series.map((row, index) => isNum(row.needHours)
-      ? `<circle cx="${xPos(index).toFixed(1)}" cy="${yVal(row.needHours).toFixed(1)}" r="4" fill="rgba(255,255,255,0.72)" stroke="rgba(8,17,31,0.95)" stroke-width="2" ${chartTipAttrs(`${fmtTableDay(row.date)} · Need ${fmtHm(row.needHours)}`, "#d7ecff")}></circle>`
+      ? `<circle cx="${xPos(index).toFixed(1)}" cy="${yVal(row.needHours).toFixed(1)}" r="4" fill="rgba(26,26,26,0.2)" stroke="rgba(255,255,255,0.95)" stroke-width="2" ${chartTipAttrs(`${fmtTableDay(row.date)} · Need ${fmtHm(row.needHours)}`, "#4a90a4")}></circle>`
       : "").join("")}
     ${monthAxisLabels(series, width, height, pad)}
   </svg>`;
@@ -1097,7 +1097,7 @@ function renderWorkoutLoad(series) {
     const barHeight = (value / maxValue) * innerHeight;
     const x = pad.left + index * (innerWidth / series.length) + (innerWidth / series.length - barWidth) / 2;
     const y = height - pad.bottom - barHeight;
-    const fill = value > 10 ? PALETTE.amber : value > 5 ? PALETTE.blue : "rgba(110,167,255,0.42)";
+    const fill = value > 10 ? PALETTE.amber : value > 5 ? PALETTE.blue : "rgba(74,144,164,0.35)";
     return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(barHeight, 2).toFixed(1)}" rx="4" fill="${fill}" ${chartTipAttrs(`${fmtTableDay(row.date)} · Strain ${fmt(value, 2)} · ${row.sessions || 0} sessions`, fill)}></rect>`;
   }).join("");
 

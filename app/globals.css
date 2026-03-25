@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  /* Core palette - cream/off-white background */
+  --color-background: #faf9f7;
+  --color-background-alt: #f5f4f1;
+  --color-foreground: #1a1a1a;
+  --color-foreground-muted: rgba(26, 26, 26, 0.6);
+  --color-foreground-dim: rgba(26, 26, 26, 0.4);
+
+  /* Surface colors */
+  --color-surface: rgba(255, 255, 255, 0.72);
+  --color-surface-hover: rgba(255, 255, 255, 0.88);
+  --color-surface-strong: rgba(255, 255, 255, 0.95);
+
+  /* Border colors */
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-strong: rgba(0, 0, 0, 0.12);
+
+  /* Accent colors - teal/green from the website */
+  --color-teal: #2a9d8f;
+  --color-teal-light: #40b8a7;
+  --color-teal-dim: rgba(42, 157, 143, 0.12);
+
+  /* Secondary accents */
+  --color-blue: #4a90a4;
+  --color-blue-dim: rgba(74, 144, 164, 0.12);
+  --color-amber: #c4934a;
+  --color-amber-dim: rgba(196, 147, 74, 0.12);
+  --color-rose: #c27d8a;
+  --color-rose-dim: rgba(194, 125, 138, 0.12);
+  --color-purple: #8b7bb5;
+  --color-purple-dim: rgba(139, 123, 181, 0.12);
+
+  /* Sleep stage colours */
+  --color-deep: #2a9d8f;
+  --color-light: #4a90a4;
+  --color-rem: #8b7bb5;
+  --color-awake: #c27d8a;
+
+  /* Radius */
+  --radius: 0.5rem;
+  --radius-sm: 0.75rem;
+  --radius-lg: 1.25rem;
+
+  /* Fonts */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+    line-height: 1.6;
+  }
+}
