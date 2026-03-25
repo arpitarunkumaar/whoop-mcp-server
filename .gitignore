@@ -14,7 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+lib/*
+!lib/dashboard-view-model.ts
 lib64/
 parts/
 sdist/
@@ -112,6 +113,11 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Node / pnpm (local store and deps — never commit)
+node_modules/
+.pnpm-store/
+.next/
 
 # WHOOP MCP Server specific
 storage/

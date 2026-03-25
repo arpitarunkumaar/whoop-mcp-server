@@ -50,6 +50,56 @@ def median(values: Iterable[Optional[float]], digits: int = 2) -> Optional[float
     return round(statistics.median(cleaned), digits)
 
 
+def std_dev(values: Iterable[Optional[float]], digits: int = 2) -> Optional[float]:
+    """Compute standard deviation."""
+    cleaned = [value for value in values if value is not None]
+    if len(cleaned) < 2:
+        return None
+    return round(statistics.stdev(cleaned), digits)
+
+
+def calculate_ns_state(current_hrv: Optional[float], hrv_mean: Optional[float], hrv_stdev: Optional[float],
+                       current_rhr: Optional[float], rhr_mean: Optional[float], rhr_stdev: Optional[float]) -> str:
+    """Classify Nervous System State based on 30-day baselines vs current day."""
+    if None in (current_hrv, hrv_mean, hrv_stdev, current_rhr, rhr_mean, rhr_stdev):
+        return "Unknown"
+    
+    if hrv_stdev == 0 or rhr_stdev == 0:
+        return "Balanced"
+        
+    hrv_z = (current_hrv - hrv_mean) / hrv_stdev
+    rhr_z = (rhr_mean - current_rhr) / rhr_stdev  # Inverted: lower RHR is better
+    
+    ns_score = hrv_z + rhr_z
+    
+    if ns_score > 1.0:
+        return "Parasympathetic Dominant"
+    elif ns_score < -1.5 and hrv_z < -1.0:
+        return "Suppressed"
+    elif ns_score < -1.0 and rhr_z < 0:
+        return "Sympathetic Dominant"
+    else:
+        return "Balanced"
+
+
+def calculate_daily_decision(recovery_score: Optional[float], ns_state: str) -> Dict[str, str]:
+    """Generate daily action recommendations based on recovery and NS state."""
+    if recovery_score is None:
+        return {"action": "Gathering data", "optimal_strain": "Unknown"}
+        
+    if recovery_score > 66 and ns_state == "Parasympathetic Dominant":
+        return {"action": "Prime for high strain. Push intensity.", "optimal_strain": "14-18"}
+    elif recovery_score > 66:
+        return {"action": "System adaptable. Normal training load.", "optimal_strain": "12-16"}
+    elif recovery_score >= 34:
+        if ns_state in ("Suppressed", "Sympathetic Dominant"):
+            return {"action": "Monitor intensity. System showing stress.", "optimal_strain": "8-12"}
+        else:
+            return {"action": "Maintain moderate strain. Focus on volume, not intensity.", "optimal_strain": "10-14"}
+    else:
+        return {"action": "Prioritize active recovery. Zone 2 max 45 min.", "optimal_strain": "< 10"}
+
+
 def percent_change(current: Optional[float], previous: Optional[float], digits: int = 1) -> Optional[float]:
     """Compute percent change when both values are available."""
     if current is None or previous in (None, 0):
@@ -636,6 +686,25 @@ class DashboardAnalyzer:
         previous_sleep_performance_average = mean(previous_sleep_performance)
         recent_sleep_gap_average = mean(recent_sleep_gap)
 
+        # 30-day baselines and Daily Insights
+        trailing_30_hrv = last_n(hrv_values, 30)
+        trailing_30_rhr = last_n(rhr_values, 30)
+        
+        baseline_hrv_mean = mean(trailing_30_hrv)
+        baseline_hrv_stdev = std_dev(trailing_30_hrv)
+        baseline_rhr_mean = mean(trailing_30_rhr)
+        baseline_rhr_stdev = std_dev(trailing_30_rhr)
+        
+        current_hrv = hrv_values[-1] if hrv_values else None
+        current_rhr = rhr_values[-1] if rhr_values else None
+        current_recovery = recovery_scores[-1] if recovery_scores else None
+        
+        ns_state = calculate_ns_state(
+            current_hrv, baseline_hrv_mean, baseline_hrv_stdev,
+            current_rhr, baseline_rhr_mean, baseline_rhr_stdev
+        )
+        daily_decision = calculate_daily_decision(current_recovery, ns_state)
+
         recent_window_start = (
             (latest_date - timedelta(days=6)).isoformat() if latest_date else None
         )
@@ -1095,6 +1164,16 @@ class DashboardAnalyzer:
                         "samples": len(workout_dates),
                     },
                 ],
+            },
+            "advancedInsights": {
+                "nervousSystemState": ns_state,
+                "dailyDecision": daily_decision,
+                "baselines": {
+                    "hrvMean": baseline_hrv_mean,
+                    "hrvStdev": baseline_hrv_stdev,
+                    "rhrMean": baseline_rhr_mean,
+                    "rhrStdev": baseline_rhr_stdev,
+                }
             },
             "rawData": {
                 "profile": profile,
