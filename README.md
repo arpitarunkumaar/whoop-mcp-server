@@ -83,8 +83,9 @@ Ask Claude:
 
 ## Local Dashboard
 
-- Run `python3.11 src/whoop_dashboard_server.py` to start the local web dashboard.
-- Open `http://localhost:8765` in your browser to view recovery, sleep, and workout trends.
+- Run `python3.11 src/whoop_dashboard_server.py` to start the local WHOOP API server.
+- Run `npm run dev` to start the Next.js dashboard in your browser.
+- Open `http://localhost:3000` in your browser to view the dashboard UI.
 
 ## Essential Notes
 

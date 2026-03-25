@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
 """
-Local WHOOP dashboard web server.
+Local WHOOP dashboard API server.
 """
 import argparse
 import asyncio
 import json
-import mimetypes
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from dashboard_analysis import DashboardAnalyzer
 from whoop_client import WhoopClient
 
 
-STATIC_ROOT = Path(__file__).resolve().parent / "web"
 WHOOP_CLIENT = WhoopClient()
 ANALYZER = DashboardAnalyzer(WHOOP_CLIENT)
+LEGACY_DASHBOARD_REMOVED_MESSAGE = (
+    "Legacy dashboard removed.\n"
+    "This server now only hosts API endpoints.\n"
+)
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    """Serves static dashboard assets and the WHOOP analysis API."""
+    """Serves WHOOP analysis APIs and blocks legacy static dashboard UI."""
 
     server_version = "WhoopDashboard/1.0"
 
@@ -36,7 +37,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._handle_dashboard_request(parsed.query)
             return
 
-        self._serve_static(parsed.path)
+        self._serve_legacy_removed(parsed.path)
 
     def log_message(self, format: str, *args: object) -> None:
         """Keep request logs readable."""
@@ -58,30 +59,19 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 status=HTTPStatus.INTERNAL_SERVER_ERROR,
             )
 
-    def _serve_static(self, request_path: str) -> None:
-        """Serve dashboard HTML, CSS, and JS assets."""
-        if request_path in {"", "/"}:
-            target = STATIC_ROOT / "index.html"
-        else:
-            target = (STATIC_ROOT / request_path.lstrip("/")).resolve()
-            if not str(target).startswith(str(STATIC_ROOT.resolve())):
-                self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
-                return
-            if target.is_dir():
-                target = target / "index.html"
-            if not target.exists():
-                target = STATIC_ROOT / "index.html"
-
-        if not target.exists():
-            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+    def _serve_legacy_removed(self, request_path: str) -> None:
+        """Disable legacy static UI and return a plain 410 response."""
+        if request_path in {"", "/", "/index.html"}:
+            body = LEGACY_DASHBOARD_REMOVED_MESSAGE.encode("utf-8")
+            self.send_response(HTTPStatus.GONE)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self._send_no_cache_headers()
+            self.end_headers()
+            self.wfile.write(body)
             return
 
-        content_type, _ = mimetypes.guess_type(str(target))
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type or "application/octet-stream")
-        self._send_no_cache_headers()
-        self.end_headers()
-        self.wfile.write(target.read_bytes())
+        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
         """Write a JSON response."""
@@ -101,14 +91,14 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    """Start the local dashboard server."""
-    parser = argparse.ArgumentParser(description="Run the WHOOP dashboard web app.")
+    """Start the local dashboard API server."""
+    parser = argparse.ArgumentParser(description="Run the WHOOP dashboard API server.")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
     parser.add_argument("--port", type=int, default=8765, help="Port to bind.")
     args = parser.parse_args()
 
     server = ThreadingHTTPServer((args.host, args.port), DashboardRequestHandler)
-    print(f"WHOOP dashboard available at http://{args.host}:{args.port}", file=sys.stderr)
+    print(f"WHOOP dashboard API available at http://{args.host}:{args.port}", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

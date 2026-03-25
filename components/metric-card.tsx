@@ -1,6 +1,8 @@
-type MetricCardProps = {
+import { InfoHint } from "./info-hint"
+
+export type MetricCardProps = {
   label: string
-  value: string | number
+  value: string | number | null
   unit: string
   trend: "up" | "down" | "stable"
   description: string
@@ -34,25 +36,28 @@ const trendIcons = {
 }
 
 export function MetricCard({ label, value, unit, trend, description, color }: MetricCardProps) {
+  const displayValue = value ?? "—"
+
   return (
-    <div className="rounded-lg border border-border bg-surface p-5 backdrop-blur-sm transition-all hover:bg-surface-hover">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-foreground-dim">
-          {label}
+    <div className="rounded-[1.1rem] border border-border bg-surface p-4 backdrop-blur-sm transition-colors hover:bg-surface-hover">
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2 text-[0.67rem] font-medium uppercase tracking-[0.18em] text-foreground-dim">
+          <span className="truncate">{label}</span>
+          <InfoHint text={description} widthClassName="w-48" />
         </span>
-        <span className={`rounded-full p-1.5 ${colorClasses[color]}`}>
+        <span className={`shrink-0 rounded-full p-1.5 ${colorClasses[color]}`}>
           {trendIcons[trend]}
         </span>
       </div>
-      <div className="flex items-baseline gap-1">
-        <span className="font-serif text-3xl font-medium text-foreground">
-          {value}
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5">
+        <span className="min-w-0 break-words font-serif text-[clamp(1.35rem,2vw,1.95rem)] font-medium leading-none tracking-tight text-foreground">
+          {displayValue}
         </span>
         {unit && (
-          <span className="text-sm text-foreground-muted">{unit}</span>
+          <span className="text-xs text-foreground-muted sm:text-sm">{unit}</span>
         )}
       </div>
-      <p className="mt-2 text-xs text-foreground-muted">{description}</p>
+      <p className="mt-2 text-[0.78rem] leading-snug text-foreground-muted">{description}</p>
     </div>
   )
 }
