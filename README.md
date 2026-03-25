@@ -91,6 +91,9 @@ Ask Claude:
 - Token storage path: `~/.whoop-mcp-server/`
 - Logs: use `LOG_LEVEL` and optional `LOG_FILE` environment variables.
 - Export utility (optional): `python scripts/export_whoop_data.py`
+- Drop prior exports in `drop_exports/`; incremental runs auto-select the newest dropped export.
+- `drop_exports/` is scaffolded in Git, but files you drop there are gitignored.
+- Override drop folder if needed: `python scripts/export_whoop_data.py --drop-base /path/to/exports`
 - If refresh fails after moving tokens between machines, set:
   - `WHOOP_CLIENT_ID`
   - `WHOOP_CLIENT_SECRET`

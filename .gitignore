@@ -115,6 +115,8 @@ dmypy.json
 
 # WHOOP MCP Server specific
 storage/
+drop_exports/*
+!drop_exports/.gitignore
 *.key
 *tokens*.json
 whoop_profile.json
