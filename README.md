@@ -51,8 +51,10 @@ pip install -r requirements.txt
 Use the direct local OAuth flow (no third-party auth broker):
 
 ```bash
-python3.11 setup.py --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET
+python3.11 setup.py --client-id YOUR_CLIENT_ID
 ```
+
+If `WHOOP_CLIENT_SECRET` is not set, setup prompts for it securely.
 
 ## Claude Desktop Setup
 
@@ -89,9 +91,33 @@ Ask Claude:
 
 ## Local Dashboard
 
-- Run `python3.11 src/whoop_dashboard_server.py` to start the local WHOOP API server.
-- Run `npm run dev` to start the Next.js dashboard in your browser.
+- Run `python3.11 src/whoop_dashboard_server.py` to start the local dashboard API server (loopback-only by default).
+- Run `npm run dev` to start the Next.js dashboard.
 - Open `http://localhost:3000` in your browser to view the dashboard UI.
+- Click `Refresh` in the dashboard UI to force a fresh WHOOP pull.
+- To bind to a non-loopback host, pass `--allow-remote` explicitly.
+
+## Live Data Reset (Quick Steps)
+
+If the dashboard is not showing current data, run these steps in order:
+
+1. Stop any existing dashboard process:
+```bash
+pkill -f 'src/whoop_dashboard_server.py'
+```
+2. Clear local WHOOP cache:
+```bash
+rm -f ~/.whoop-mcp-server/cache.json
+```
+3. Re-authorize WHOOP:
+```bash
+python3.11 setup.py --client-id YOUR_CLIENT_ID --redirect-uri http://127.0.0.1:8786/callback
+```
+4. Start the dashboard API again:
+```bash
+python3.11 src/whoop_dashboard_server.py --host 127.0.0.1 --port 8765
+```
+5. Open `http://localhost:3000` and click `Refresh`.
 
 ## CSV Export
 
@@ -128,12 +154,14 @@ CSV files are written into the selected export directory (for example `storage/e
   - `WHOOP_CLIENT_ID`
   - `WHOOP_CLIENT_SECRET`
 - If your `~/.whoop-mcp-server/tokens.json` was created before client credentials were persisted, re-run setup once so refresh remains stable:
-  - `python3.11 setup.py --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET`
+  - `python3.11 setup.py --client-id YOUR_CLIENT_ID`
 
 ## Troubleshooting
 
 - `No valid access token available`:
-  - Re-run `python3.11 setup.py --client-id YOUR_CLIENT_ID --client-secret YOUR_CLIENT_SECRET`
+  - Run the **Live Data Reset (Quick Steps)** section above.
+- OAuth error `invalid_client`:
+  - Re-run step 3 from **Live Data Reset (Quick Steps)** and complete the browser authorization flow.
 - Claude does not show WHOOP tools:
   - Confirm absolute paths in `claude_desktop_config.json`
   - Ensure `PYTHONPATH` points to `<repo>/src`

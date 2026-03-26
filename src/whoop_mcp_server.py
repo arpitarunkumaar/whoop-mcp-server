@@ -27,6 +27,7 @@ from dashboard_analysis import (
     shift_date,
 )
 from whoop_client import WhoopClient
+from validation import validate_collection_filters
 
 # Create FastMCP server
 mcp = FastMCP("whoop-mcp-server")
@@ -71,6 +72,7 @@ def resolve_streamable_http_port() -> int:
             return 8000
 
     return 8000
+
 
 
 def init_whoop_client():
@@ -523,6 +525,15 @@ async def get_whoop_workouts(
         file=sys.stderr,
     )
     
+    validation_error = validate_collection_filters(
+        limit=limit,
+        start_date=start_date,
+        end_date=end_date,
+        next_token=next_token,
+    )
+    if validation_error:
+        return build_tool_result("get_whoop_workouts", error=validation_error)
+
     try:
         init_whoop_client()
         data = await whoop_client.get_workouts(
@@ -552,6 +563,15 @@ async def get_whoop_recovery(
         file=sys.stderr,
     )
     
+    validation_error = validate_collection_filters(
+        limit=limit,
+        start_date=start_date,
+        end_date=end_date,
+        next_token=next_token,
+    )
+    if validation_error:
+        return build_tool_result("get_whoop_recovery", error=validation_error)
+
     try:
         init_whoop_client()
         data = await whoop_client.get_recovery(
@@ -582,6 +602,15 @@ async def get_whoop_sleep(
         file=sys.stderr,
     )
 
+    validation_error = validate_collection_filters(
+        limit=limit,
+        start_date=start_date,
+        end_date=end_date,
+        next_token=next_token,
+    )
+    if validation_error:
+        return build_tool_result("get_whoop_sleep", error=validation_error)
+
     try:
         init_whoop_client()
         data = await whoop_client.get_sleep(
@@ -611,6 +640,15 @@ async def get_whoop_cycles(
         f"end_date={end_date}, next_token={next_token})",
         file=sys.stderr,
     )
+
+    validation_error = validate_collection_filters(
+        limit=limit,
+        start_date=start_date,
+        end_date=end_date,
+        next_token=next_token,
+    )
+    if validation_error:
+        return build_tool_result("get_whoop_cycles", error=validation_error)
 
     try:
         init_whoop_client()

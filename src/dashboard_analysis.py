@@ -2,6 +2,7 @@
 WHOOP dashboard analysis helpers.
 """
 import asyncio
+import hashlib
 import json
 import math
 import re
@@ -255,6 +256,22 @@ def shift_date(value: str, days: int) -> Optional[str]:
     return (base + timedelta(days=days)).date().isoformat()
 
 
+def record_identity(record: Dict[str, Any]) -> str:
+    """Build a stable identity key for deduping WHOOP records."""
+    preferred_keys = ("id", "cycle_id", "sleep_id", "created_at", "start", "end")
+    for key in preferred_keys:
+        value = record.get(key)
+        if value not in (None, ""):
+            return f"{key}:{value}"
+
+    try:
+        canonical = json.dumps(record, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        canonical = repr(record)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"hash:{digest}"
+
+
 class DashboardAnalyzer:
     """Builds the WHOOP dashboard payload used by the local web app."""
 
@@ -449,11 +466,15 @@ class DashboardAnalyzer:
         """Fetch every page from a WHOOP endpoint using cursor pagination."""
         records: List[Dict[str, Any]] = []
         seen_keys = set()
+        seen_page_tokens = set()
         next_token: Optional[str] = None
 
         while True:
             params: Dict[str, Any] = {"limit": MAX_PAGE_SIZE}
             if next_token:
+                if next_token in seen_page_tokens:
+                    break
+                seen_page_tokens.add(next_token)
                 params["nextToken"] = next_token
 
             payload = await self.client._make_request(endpoint, params)
@@ -461,22 +482,15 @@ class DashboardAnalyzer:
             if not page:
                 break
 
-            new_rows = 0
             for record in page:
-                record_key = (
-                    record.get("id")
-                    or record.get("cycle_id")
-                    or record.get("sleep_id")
-                    or record.get("created_at")
-                )
+                record_key = record_identity(record)
                 if record_key in seen_keys:
                     continue
                 seen_keys.add(record_key)
                 records.append(record)
-                new_rows += 1
 
             next_token = payload.get("next_token") or payload.get("nextToken")
-            if not next_token or not new_rows:
+            if not next_token:
                 break
 
         return records

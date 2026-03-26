@@ -3,6 +3,8 @@ Token management for WHOOP MCP Server
 """
 import json
 import os
+import stat
+import tempfile
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from cryptography.fernet import Fernet
@@ -23,25 +25,73 @@ class TokenManager:
     def __init__(self):
         self.storage_path = TOKEN_STORAGE_PATH
         self.key_file = ENCRYPTION_KEY_FILE
+        self.storage_dir = os.path.dirname(self.storage_path)
+        self._ensure_storage_dir()
         self.encryption_key = self._get_or_create_key()
         self.fernet = Fernet(self.encryption_key)
         self.cipher_suite = self.fernet  # Alias for compatibility
-        
-        # Ensure storage directory exists
-        os.makedirs(os.path.dirname(self.storage_path), exist_ok=True)
+
+    def _ensure_storage_dir(self) -> None:
+        """Ensure secure storage directory permissions."""
+        os.makedirs(self.storage_dir, mode=0o700, exist_ok=True)
+        self._enforce_permissions(self.storage_dir, 0o700, "token storage directory")
+
+    def _enforce_permissions(self, path: str, mode: int, label: str) -> None:
+        """Best-effort permission hardening with useful logging on failure."""
+        try:
+            os.chmod(path, mode)
+        except PermissionError as exc:
+            # Some sandboxed runtimes block chmod even when secure perms already exist.
+            try:
+                current_mode = stat.S_IMODE(os.stat(path).st_mode)
+            except OSError:
+                logger.warning("Failed to enforce %s permissions: %s", label, exc)
+                return
+
+            if current_mode == mode:
+                logger.debug(
+                    "Could not chmod %s due to runtime restrictions; mode already %03o.",
+                    path,
+                    mode,
+                )
+                return
+
+            logger.warning(
+                "Failed to enforce %s permissions (current=%03o expected=%03o): %s",
+                label,
+                current_mode,
+                mode,
+                exc,
+            )
+        except OSError as exc:
+            logger.warning("Failed to enforce %s permissions: %s", label, exc)
         
     def _get_or_create_key(self) -> bytes:
-        """Get or create encryption key"""
+        """Get or create encryption key atomically."""
         if os.path.exists(self.key_file):
+            self._enforce_permissions(self.key_file, 0o600, "key file")
             with open(self.key_file, 'rb') as f:
                 return f.read()
         else:
-            # Create new key
+            # Create new key atomically to avoid corruption on partial writes.
             key = Fernet.generate_key()
-            os.makedirs(os.path.dirname(self.key_file), exist_ok=True)
-            with open(self.key_file, 'wb') as f:
-                f.write(key)
-            os.chmod(self.key_file, 0o600)  # Restrict permissions
+            key_dir = os.path.dirname(self.key_file)
+            os.makedirs(key_dir, exist_ok=True)
+            fd, temp_path = tempfile.mkstemp(
+                prefix=".key-",
+                dir=key_dir,
+            )
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(key)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                self._enforce_permissions(temp_path, 0o600, "temporary key file")
+                os.replace(temp_path, self.key_file)
+                self._enforce_permissions(self.key_file, 0o600, "key file")
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
             return key
     
     def _encrypt_data(self, data: str) -> str:
@@ -75,12 +125,24 @@ class TokenManager:
             if tokens.get("client_secret"):
                 token_data["client_secret"] = self._encrypt_data(tokens["client_secret"])
             
-            # Save to file
-            with open(self.storage_path, 'w') as f:
-                json.dump(token_data, f, indent=2)
-            
-            # Restrict file permissions
-            os.chmod(self.storage_path, 0o600)
+            # Save to file atomically to avoid corruption on partial writes.
+            fd, temp_path = tempfile.mkstemp(
+                prefix="tokens-",
+                suffix=".json.tmp",
+                dir=self.storage_dir,
+                text=True,
+            )
+            try:
+                with os.fdopen(fd, "w") as handle:
+                    json.dump(token_data, handle, indent=2)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                self._enforce_permissions(temp_path, 0o600, "temporary token file")
+                os.replace(temp_path, self.storage_path)
+                self._enforce_permissions(self.storage_path, 0o600, "token file")
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
             
             logger.info("Tokens saved successfully")
             
@@ -95,6 +157,8 @@ class TokenManager:
             return None
         
         try:
+            self._enforce_permissions(self.storage_path, 0o600, "token file")
+
             # Check if file is binary (new format) or text (old format)
             with open(self.storage_path, 'rb') as f:
                 file_content = f.read()
@@ -214,7 +278,8 @@ class TokenManager:
                 return token_data
 
             logger.error(
-                f"Token refresh failed with status {response.status_code}: {response.text}"
+                "Token refresh failed with status %s.",
+                response.status_code,
             )
             return None
 

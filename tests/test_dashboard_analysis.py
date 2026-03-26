@@ -307,6 +307,31 @@ class TestDashboardAnalysis(unittest.TestCase):
             self.assertEqual(payload["sources"]["workouts"]["count"], 0)
             self.assertEqual(payload["metrics"]["recovery"]["average"], 74.0)
 
+    def test_fetch_all_records_supports_next_token_alias(self):
+        """Cursor pagination should work for both `next_token` and `nextToken`."""
+        client = MagicMock()
+        client._make_request = AsyncMock(
+            side_effect=[
+                {
+                    "records": [{"id": "row-1"}],
+                    "nextToken": "cursor-2",
+                },
+                {
+                    "records": [{"id": "row-2"}],
+                },
+            ]
+        )
+        analyzer = DashboardAnalyzer(client)
+
+        records = asyncio.run(analyzer._fetch_all_records("/recovery"))
+
+        self.assertEqual(records, [{"id": "row-1"}, {"id": "row-2"}])
+        self.assertEqual(client._make_request.await_count, 2)
+        self.assertEqual(
+            client._make_request.await_args_list[1].args,
+            ("/recovery", {"limit": 25, "nextToken": "cursor-2"}),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

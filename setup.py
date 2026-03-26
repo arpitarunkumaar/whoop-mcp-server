@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import getpass
 import html
 import os
 import sys
@@ -182,7 +183,14 @@ def main():
 
     parser = argparse.ArgumentParser(description="Direct WHOOP OAuth setup")
     parser.add_argument("--client-id",     required=True, help="WHOOP app Client ID")
-    parser.add_argument("--client-secret", required=True, help="WHOOP app Client Secret")
+    parser.add_argument(
+        "--client-secret",
+        required=False,
+        help=(
+            "WHOOP app Client Secret. If omitted, WHOOP_CLIENT_SECRET is used or you will "
+            "be prompted securely."
+        ),
+    )
     parser.add_argument(
         "--redirect-uri",
         default=None,
@@ -211,6 +219,14 @@ def main():
         ),
     )
     args = parser.parse_args()
+
+    client_secret = args.client_secret or os.getenv("WHOOP_CLIENT_SECRET")
+    if not client_secret:
+        client_secret = getpass.getpass("WHOOP Client Secret: ").strip()
+    if not client_secret:
+        parser.error(
+            "A WHOOP client secret is required. Set WHOOP_CLIENT_SECRET or provide --client-secret."
+        )
 
     if args.redirect_uri:
         parsed_redirect = urllib.parse.urlparse(args.redirect_uri)
@@ -318,7 +334,7 @@ def main():
             "code":          _auth_code,
             "redirect_uri":  redirect_uri,
             "client_id":     args.client_id,
-            "client_secret": args.client_secret,
+            "client_secret": client_secret,
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         timeout=30,
@@ -331,7 +347,7 @@ def main():
     token_data = resp.json()
     token_data["success"] = True  # Backward compatibility with old token payload checks.
     token_data["client_id"] = args.client_id
-    token_data["client_secret"] = args.client_secret
+    token_data["client_secret"] = client_secret
 
     # Save tokens
     c("💾 Saving tokens...", Colors.INFO)

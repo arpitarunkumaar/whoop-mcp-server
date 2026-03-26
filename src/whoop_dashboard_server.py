@@ -4,6 +4,7 @@ Local WHOOP dashboard API server.
 """
 import argparse
 import asyncio
+import ipaddress
 import json
 import sys
 from http import HTTPStatus
@@ -121,6 +122,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     """Start the local dashboard API server."""
+
+    def is_loopback_host(host: str) -> bool:
+        if host == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return False
+
     global OVERRIDE_EXPORT_DIR
     parser = argparse.ArgumentParser(description="Run the WHOOP dashboard API server.")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind.")
@@ -130,9 +140,19 @@ def main() -> None:
         default=None,
         help="Optional specific WHOOP export directory to force offline mode fallback.",
     )
+    parser.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="Allow binding to non-loopback hosts (disabled by default for safety).",
+    )
     args = parser.parse_args()
     if args.export_dir:
         OVERRIDE_EXPORT_DIR = Path(args.export_dir).expanduser().resolve()
+
+    if not args.allow_remote and not is_loopback_host(args.host):
+        parser.error(
+            "Refusing to bind to a non-loopback host without --allow-remote."
+        )
 
     server = ThreadingHTTPServer((args.host, args.port), DashboardRequestHandler)
     print(f"WHOOP dashboard API available at http://{args.host}:{args.port}", file=sys.stderr)

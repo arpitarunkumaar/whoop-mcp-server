@@ -174,6 +174,54 @@ class TestTokenManager(unittest.TestCase):
         self.assertIn(info['status'], ['valid', 'expired'])
         self.assertEqual(info['token_type'], 'Bearer')
 
+    def test_permission_warning_suppressed_when_mode_already_secure(self):
+        """PermissionError should be ignored when mode is already correct."""
+        tm = TokenManager()
+        os.chmod(self.key_path, 0o600)
+
+        with patch('auth_manager.os.chmod', side_effect=PermissionError(1, 'Operation not permitted')):
+            with patch('auth_manager.logger.warning') as mock_warning:
+                tm._enforce_permissions(self.key_path, 0o600, 'key file')
+                mock_warning.assert_not_called()
+
+    def test_permission_warning_emitted_when_mode_not_secure(self):
+        """PermissionError should warn when mode remains too permissive."""
+        tm = TokenManager()
+        os.chmod(self.key_path, 0o644)
+
+        with patch('auth_manager.os.chmod', side_effect=PermissionError(1, 'Operation not permitted')):
+            with patch('auth_manager.logger.warning') as mock_warning:
+                tm._enforce_permissions(self.key_path, 0o600, 'key file')
+                mock_warning.assert_called_once()
+
+    def test_atomic_key_write_does_not_corrupt_on_replace_failure(self):
+        """If os.replace fails during key creation, the original key must survive."""
+        # Create a TokenManager to establish the initial key file.
+        tm1 = TokenManager()
+        original_key = tm1.encryption_key
+        self.assertTrue(os.path.exists(self.key_path))
+
+        # Remove the key file so a new _get_or_create_key triggers the write path.
+        os.remove(self.key_path)
+        self.assertFalse(os.path.exists(self.key_path))
+
+        real_replace = os.replace
+
+        def failing_replace(src, dst):
+            raise OSError("simulated disk failure")
+
+        with patch('auth_manager.os.replace', side_effect=failing_replace):
+            with self.assertRaises(OSError):
+                TokenManager()
+
+        # The key file should NOT exist (partial write was cleaned up by finally).
+        self.assertFalse(os.path.exists(self.key_path))
+
+        # Verify no temp files leaked in the storage dir.
+        leftover = [f for f in os.listdir(self.temp_dir) if f.startswith(".key-")]
+        self.assertEqual(leftover, [], "Temp key file was not cleaned up")
+
 
 if __name__ == '__main__':
     unittest.main()
+
