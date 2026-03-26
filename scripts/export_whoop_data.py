@@ -24,8 +24,10 @@ from whoop_client import WhoopClient  # noqa: E402
 
 DEFAULT_PAGE_SIZE = 25
 DEFAULT_OUTPUT_BASE = REPO_ROOT / "storage" / "exports"
+DEFAULT_DROP_BASE = REPO_ROOT / "drop_exports"
 OFFICIAL_API_DOCS_URL = "https://developer.whoop.com/api"
 INCREMENTAL_LOOKBACK_HOURS = 48
+EXPORT_DIR_TIMESTAMP_RE = re.compile(r"^whoop-export-(\d{8}T\d{6}Z)$")
 
 
 def utc_now() -> datetime:
@@ -456,7 +458,7 @@ def generate_csv_exports(export_dir: Path) -> Dict[str, Any]:
 
 def record_key(record: Dict[str, Any], index: int) -> str:
     """Build a stable dedupe key across WHOOP collections."""
-    for key in ("id", "cycle_id", "sleep_id", "v1_id"):
+    for key in ("id", "cycle_id", "sleep_id"):
         value = record.get(key)
         if value not in (None, ""):
             return f"{key}:{value}"
@@ -491,20 +493,60 @@ def collection_span(records: List[Dict[str, Any]]) -> Tuple[Optional[str], Optio
     )
 
 
-def list_export_dirs(output_base: Path) -> List[Path]:
-    """List existing WHOOP export directories sorted by name."""
-    if not output_base.exists():
-        return []
-    return sorted(
-        path for path in output_base.iterdir() if path.is_dir() and path.name.startswith("whoop-export-")
-    )
+def is_export_dir(path: Path) -> bool:
+    """Return whether a directory looks like a WHOOP export root."""
+    if not path.is_dir():
+        return False
+    if path.name.startswith("whoop-export-"):
+        return True
+    return (path / "manifest.json").exists()
 
 
-def resolve_export_dir(output_base: Path, fresh: bool) -> Tuple[Path, bool]:
+def export_dir_sort_key(path: Path) -> Tuple[float, float, str]:
+    """Sort exports by drop/update time, then embedded timestamp, then name."""
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+
+    embedded_timestamp = 0.0
+    match = EXPORT_DIR_TIMESTAMP_RE.match(path.name)
+    if match:
+        try:
+            embedded_timestamp = (
+                datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ")
+                .replace(tzinfo=timezone.utc)
+                .timestamp()
+            )
+        except ValueError:
+            embedded_timestamp = 0.0
+
+    return (mtime, embedded_timestamp, path.name)
+
+
+def list_export_dirs(output_base: Path, drop_base: Optional[Path]) -> List[Path]:
+    """List export directories from output and drop locations, oldest to newest."""
+    roots = [output_base]
+    if drop_base and drop_base != output_base:
+        roots.append(drop_base)
+
+    export_dirs: List[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        export_dirs.extend(path for path in root.iterdir() if is_export_dir(path))
+
+    return sorted(export_dirs, key=export_dir_sort_key)
+
+
+def resolve_export_dir(output_base: Path, drop_base: Optional[Path], fresh: bool) -> Tuple[Path, bool]:
     """Return the export directory to update, creating one if required."""
     output_base.mkdir(parents=True, exist_ok=True)
+    if drop_base:
+        drop_base.mkdir(parents=True, exist_ok=True)
+
     if not fresh:
-        existing = list_export_dirs(output_base)
+        existing = list_export_dirs(output_base, drop_base)
         if existing:
             return existing[-1], True
 
@@ -852,13 +894,7 @@ async def fetch_official_docs_snapshot(output_dir: Path, run_output_dir: Path) -
     write_text(output_dir / "official_api_docs.html", html)
     write_text(run_output_dir / "official_api_docs.html", html)
 
-    paths = sorted(
-        {
-            match
-            for match in re.findall(r"/v[12]/[A-Za-z0-9_./{}:-]+", html)
-            if match.startswith("/v")
-        }
-    )
+    paths = sorted(set(re.findall(r"/v2/[A-Za-z0-9_./{}:-]+", html)))
     summary = {
         "dataset": "official_api_docs",
         "type": "reference",
@@ -945,10 +981,15 @@ def build_summary(export_dir: Path, manifest: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-async def export_all(output_base: Path, page_size: int, fresh: bool) -> Path:
+async def export_all(
+    output_base: Path,
+    drop_base: Optional[Path],
+    page_size: int,
+    fresh: bool,
+) -> Path:
     """Export WHOOP datasets, reusing the latest export directory by default."""
     client = WhoopClient()
-    export_dir, reused_existing_export = resolve_export_dir(output_base, fresh)
+    export_dir, reused_existing_export = resolve_export_dir(output_base, drop_base, fresh)
     run_id = timestamp_slug()
     run_dir = export_dir / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -1111,6 +1152,11 @@ def parse_args() -> argparse.Namespace:
         help=f"Base directory for timestamped exports (default: {DEFAULT_OUTPUT_BASE})",
     )
     parser.add_argument(
+        "--drop-base",
+        default=str(DEFAULT_DROP_BASE),
+        help=f"Directory to scan for manually dropped exports (default: {DEFAULT_DROP_BASE})",
+    )
+    parser.add_argument(
         "--page-size",
         type=int,
         default=DEFAULT_PAGE_SIZE,
@@ -1133,9 +1179,10 @@ def main() -> int:
     """Run the export and print the output directory."""
     args = parse_args()
     output_base = Path(args.output_base).expanduser().resolve()
+    drop_base = Path(args.drop_base).expanduser().resolve() if args.drop_base else None
 
     try:
-        export_dir = asyncio.run(export_all(output_base, args.page_size, args.fresh))
+        export_dir = asyncio.run(export_all(output_base, drop_base, args.page_size, args.fresh))
     except Exception as exc:
         print(f"Export failed: {exc}", file=sys.stderr)
         return 1

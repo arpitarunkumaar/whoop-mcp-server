@@ -174,8 +174,9 @@ class TokenManager:
         try:
             import requests
 
-            resolved_client_id = os.getenv("WHOOP_CLIENT_ID") or client_id
-            resolved_client_secret = os.getenv("WHOOP_CLIENT_SECRET") or client_secret
+            # Prefer credentials persisted with the token payload. Fall back to env vars.
+            resolved_client_id = client_id or os.getenv("WHOOP_CLIENT_ID")
+            resolved_client_secret = client_secret or os.getenv("WHOOP_CLIENT_SECRET")
 
             if not resolved_client_id or not resolved_client_secret:
                 logger.error(
@@ -191,6 +192,7 @@ class TokenManager:
                     "refresh_token": refresh_token,
                     "client_id": resolved_client_id,
                     "client_secret": resolved_client_secret,
+                    "scope": "offline",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=REQUEST_TIMEOUT
